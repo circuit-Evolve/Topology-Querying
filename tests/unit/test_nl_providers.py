@@ -101,6 +101,22 @@ def test_cli_builders_disable_tools_without_shell_interpolation(tmp_path):
     assert "--strict-mcp-config" in cmd and "--setting-sources" in cmd
 
 
+def test_codex_converter_pins_requested_sol_model_and_high_effort(tmp_path):
+    from circuit_workbench.nl_providers import cli_command
+    cmd=cli_command('codex',tmp_path,'',tmp_path/'schema.json',tmp_path/'answer.json')
+    assert cmd[cmd.index('--model')+1]=='gpt-5.6-sol'
+    overrides=[cmd[i+1] for i,value in enumerate(cmd) if value=='-c']
+    assert 'model_reasoning_effort="high"' in overrides
+
+
+def test_explicit_model_override_is_preserved_for_the_selected_provider(tmp_path):
+    from circuit_workbench.nl_providers import cli_command
+    cmd=cli_command('codex',tmp_path,'gpt-custom',tmp_path/'schema.json',tmp_path/'answer.json')
+    assert cmd[cmd.index('--model')+1]=='gpt-custom'
+    claude=cli_command('claude',tmp_path,'',tmp_path/'schema.json',tmp_path/'answer.json')
+    assert '--model' not in claude
+
+
 def test_jobs_return_result_and_cancel_without_accepting_second_active_job():
     from circuit_workbench.nl_jobs import SearchJobs
     release = threading.Event()

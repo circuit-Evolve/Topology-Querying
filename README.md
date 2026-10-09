@@ -121,7 +121,8 @@ Saved query history, annotations, circuits and Studio artifacts are retained.
   force hooks are rejected. This adapter needs live verification on your machine.
 
 Both strategies work through the same provider interface. CLI model is optional
-(provider default); Ollama model is required. CLI authentication remains owned by
+(Codex defaults to **gpt-5.6-sol with high reasoning**; an explicit model field
+overrides the model); Ollama model is required. CLI authentication remains owned by
 the CLI, never pasted into Circuit Atlas. Codex/Claude send the prompt/schema to
 their provider and use normal account allowances; Ollama stays on loopback.
 No automatic local-to-cloud fallback occurs. CLI availability is not a guarantee

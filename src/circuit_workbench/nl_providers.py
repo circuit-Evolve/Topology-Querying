@@ -18,6 +18,8 @@ from pydantic import ValidationError
 
 OLLAMA = "http://127.0.0.1:11434"
 MAX_OUTPUT = 200_000
+CODEX_DEFAULT_MODEL = 'gpt-5.6-sol'
+CODEX_REASONING_EFFORT = 'high'
 
 
 class ProviderFailure(ValueError):
@@ -40,7 +42,7 @@ def provider_status():
     except (OSError, ValueError, KeyError):
         ollama_note = "Start Ollama and install a model separately."
     return {"providers": [
-        {"id": "codex", "name": "Codex CLI", "available": bool(shutil.which("codex")), "models": [], "remote": True, "note": "Uses existing CLI login. Requires current structured-output and isolation flags."},
+        {"id": "codex", "name": "Codex CLI", "available": bool(shutil.which("codex")), "models": [], "remote": True, "note": f"Default: {CODEX_DEFAULT_MODEL} · {CODEX_REASONING_EFFORT} reasoning. Uses existing CLI login; model field overrides the model."},
         {"id": "ollama", "name": "Ollama · local", "available": bool(models), "models": models, "remote": False, "note": ollama_note},
         {"id": "claude", "name": "Claude Code CLI", "available": bool(shutil.which("claude")), "models": [], "remote": True, "note": "Install/sign in separately. Managed hooks or MCP policies are not supported."}]}
 
@@ -54,7 +56,9 @@ def cli_command(provider, workspace, model, schema_path, answer_path):
         command += ["-c", 'web_search="disabled"']
     else:
         command = [executable, "-p", "--output-format", "json", "--json-schema", schema_path.read_text() if schema_path.exists() else "{}", "--tools", "", "--disallowedTools", "mcp__*", "--strict-mcp-config", "--mcp-config", '{"mcpServers":{}}', "--setting-sources", "", "--settings", '{"disableAllHooks":true}', "--disable-slash-commands", "--no-session-persistence", "--max-turns", "2", "--system-prompt", "Return the requested JSON only. No tools or file access."]
-    if model:
+    if provider == 'codex':
+        command += ['--model',model or CODEX_DEFAULT_MODEL,'-c',f'model_reasoning_effort="{CODEX_REASONING_EFFORT}"']
+    elif model:
         command += ["--model", model]
     if provider == "codex":
         command.append("-")
