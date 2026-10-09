@@ -1,5 +1,5 @@
 """Compile validated patterns into owned, parameterized read-only Cypher."""
-from .nl_schema import SearchPlan, GraphPattern, TERMINALS, RECIPROCAL_TYPES
+from .nl_schema import SearchPlan, GraphPattern, TERMINALS, RECIPROCAL_TYPES, NET_ROLE_NAMES
 
 OPERATORS = {"eq": "=", "gt": ">", "ge": ">=", "lt": "<", "le": "<="}
 GROUPS = {"transistor": ["nmos", "pmos", "npn", "pnp"], "mos": ["nmos", "pmos"], "bjt": ["npn", "pnp"]}
@@ -87,8 +87,10 @@ def compile_pattern(pattern, prefix):
             if condition.net not in bound_nets:continue
             if condition.condition=='external':where.append(f'{nets[condition.net]}.is_external = true')
             else:
-                key=f'{prefix}rails{i}';params[key]=['VDD','VCC','VDD!','VCC!','VSS','VEE','GND','0','GND!','VSS!']
-                where.append(f'NOT toUpper({nets[condition.net]}.name) IN ${key}')
+                key=f'{prefix}rails{i}'
+                params[key]=list(NET_ROLE_NAMES['rail' if condition.condition=='not_rail' else condition.condition])
+                negation='NOT ' if condition.condition=='not_rail' else ''
+                where.append(f'{negation}toUpper({nets[condition.net]}.name) IN ${key}')
         scope=['c']+names+[nets[n] for n in pattern.nets if n in bound_nets]
         if device.type in RECIPROCAL_TYPES:scope+=relations
         # DISTINCT is a semantics-preserving horizon inside EXISTS: duplicate

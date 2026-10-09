@@ -17,6 +17,27 @@ def test_plan_compiler_keeps_count_operators_and_parameterizes_text():
     assert "LIMIT 10001" in query
 
 
+@pytest.mark.parametrize('condition,good,bad',[
+    ('supply','VCC!','out'),('supply','VDD','VSS'),
+    ('ground','GND!','VDD'),('rail','VSS','internal')])
+def test_named_rail_conditions_are_checked_in_canonical_witness_and_cypher(condition,good,bad):
+    from circuit_workbench.nl_schema import GraphPattern,SearchPlan
+    from circuit_workbench.nl_search import pattern_witness
+    from circuit_workbench.nl_compiler import compile_query
+    from circuit_workbench.uploads import parse_upload
+    pattern=GraphPattern.model_validate({'devices':[{'alias':'m','type':'nmos'}],
+        'nets':['drain'],'edges':[{'device':'m','terminal':'drain','net':'drain'}],
+        'net_conditions':[{'net':'drain','condition':condition}]})
+    yes=parse_upload(f'M1 ({good} in source VSS) nmos4','positive rail fixture')
+    no=parse_upload(f'M1 ({bad} in source VSS) nmos4','negative rail fixture')
+    assert pattern_witness(yes,pattern) is not None
+    assert pattern_witness(no,pattern) is None
+    query,params=compile_query(SearchPlan(required_pattern=pattern))
+    assert 'toUpper(hardn0.name) IN $hardrails0' in query
+    assert 'NOT toUpper(hardn0.name)' not in query
+    assert good.upper() in params['hardrails0'] and bad.upper() not in params['hardrails0']
+
+
 def pair():
     return {"devices": [{"alias": "a", "type": "nmos"}, {"alias": "b", "type": "nmos"}],
             "nets": ["tail", "in1", "in2"],

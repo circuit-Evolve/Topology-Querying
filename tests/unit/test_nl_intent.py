@@ -140,3 +140,27 @@ def test_preferred_stage_count_does_not_conflict_with_mandatory_stage_count():
 def test_optional_stage_count_does_not_become_a_hard_requirement():
     from circuit_workbench.nl_intent import intent_audit
     assert intent_audit('Find an amplifier, preferably two-stage.')['signal_stage_count'] is None
+
+
+@pytest.mark.parametrize('omitted',['supply','signal_not_rail'])
+def test_complete_quote_cannot_drop_an_explicit_supply_or_signal_connection(omitted):
+    text='Find a transistor whose gate connects to an external input net, drain connects to a supply rail, and source connects to a distinct external output net.'
+    pattern={'devices':[{'alias':'m','type':'nmos'}],'nets':['input','drain','output'],
+        'edges':[{'device':'m','terminal':t,'net':n} for t,n in [('gate','input'),('drain','drain'),('source','output')]],
+        'net_conditions':[{'net':'input','condition':'external'},{'net':'output','condition':'external'}]}
+    if omitted=='signal_not_rail':pattern['net_conditions'].append({'net':'drain','condition':'supply'})
+    else:
+        pattern['net_conditions'] += [{'net':'input','condition':'not_rail'},{'net':'output','condition':'not_rail'}]
+    p=ground_plan(text,grounded(text,pattern))
+    assert p.clarification_questions and not any(b.source_quote for b in p.required_blocks)
+
+
+def test_explicit_supply_and_external_signals_keep_the_complete_pattern():
+    text='Find a transistor whose gate connects to an external input net, drain connects to a supply rail, and source connects to a distinct external output net.'
+    pattern={'devices':[{'alias':'m','type':'nmos'}],'nets':['input','drain','output'],
+        'edges':[{'device':'m','terminal':t,'net':n} for t,n in [('gate','input'),('drain','drain'),('source','output')]],
+        'net_conditions':[{'net':'input','condition':'external'},{'net':'input','condition':'not_rail'},
+                          {'net':'output','condition':'external'},{'net':'output','condition':'not_rail'},
+                          {'net':'drain','condition':'supply'}]}
+    p=ground_plan(text,grounded(text,pattern))
+    assert not p.clarification_questions and p.required_blocks

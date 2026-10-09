@@ -4,7 +4,7 @@ import operator
 import re
 import numpy as np
 from circuit_ingest.models import CircuitRecord
-from .nl_schema import NaturalRequest, SearchPlan, PrototypeBatch, RECIPROCAL_TYPES
+from .nl_schema import NaturalRequest, SearchPlan, PrototypeBatch, RECIPROCAL_TYPES, NET_ROLE_NAMES
 from .nl_compiler import compile_query, GROUPS
 from .nl_providers import validated_generate
 from .uploads import parse_upload
@@ -75,6 +75,17 @@ The core checks the chain between external interfaces; this remains candidate
 signal-path evidence, not proof of operating gain or total operating stage count.
 Use net_conditions external for explicitly external terminals (without guessing
 names); not_rail on signal/tail nodes when interpreting differential input wiring.
+Net conditions supply, ground and rail match the application's recognized net-name
+conventions, not simulated voltage. Use supply for an explicitly requested supply
+connection, ground for ground and rail when either is allowed; never drop these
+clauses into unverified text. External input/output signal terminals need BOTH
+external and not_rail. A grounded source is not an external signal output.
+Do not invent an unspecified device polarity or extra separate rail. Prefer
+minimal constraints and complete alternatives for unspecified polarities. Shared
+supplies must reuse one alias; independently named supply aliases cannot collapse.
+Leave unrequested output-stage source/bulk terminals unbound when the request
+only requires an internal signal to drive a distinct output gain transistor.
+Otherwise a gratuitous separate source alias excludes valid shared-supply stages.
 If a requested function/spec cannot be proven, disclose it as unverified separately
 without erasing its explicit graph-level requirements. Return all schema fields.
 """
@@ -155,9 +166,13 @@ def pattern_witness(record, pattern, max_states=20000):
                         valid = False;break
                     next_bindings[edge.net] = actual
                 if not valid or len(set(next_bindings.values()))!=len(next_bindings):continue
-                if any(c.net in next_bindings and (
-                    port_role(net_records[next_bindings[c.net]].name) in {'ground','supply'} if c.condition=='not_rail'
-                    else not net_records[next_bindings[c.net]].is_external) for c in pattern.net_conditions):continue
+                def condition_fails(c):
+                    if c.net not in next_bindings:return False
+                    net=net_records[next_bindings[c.net]]
+                    if c.condition=='external':return not net.is_external
+                    if c.condition=='not_rail':return net.name.upper() in NET_ROLE_NAMES['rail']
+                    return net.name.upper() not in NET_ROLE_NAMES[c.condition]
+                if any(condition_fails(c) for c in pattern.net_conditions):continue
                 found=visit(index+1,used|{device.id},next_bindings,{**device_map,variable.alias:{'name':device.source_instance,'id':device.id,'ordinal':device.ordinal,'terminal_map':terminal_map}})
                 if found:return found
         return None

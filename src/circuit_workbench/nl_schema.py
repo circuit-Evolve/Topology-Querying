@@ -6,6 +6,11 @@ from circuit_ingest.registry import DEVICE_SPECS
 TERMINALS = {s.canonical_type: s.terminals for s in DEVICE_SPECS.values()}
 TERMINALS.update(voltage_source=("p", "n"), current_source=("p", "n"))
 RECIPROCAL_TYPES = frozenset({'resistor','capacitor','inductor'})
+NET_ROLE_NAMES = {
+    'supply': ('VDD','VCC','VDD!','VCC!'),
+    'ground': ('VSS','VEE','GND','0','GND!','VSS!'),
+}
+NET_ROLE_NAMES['rail'] = NET_ROLE_NAMES['supply'] + NET_ROLE_NAMES['ground']
 DeviceType = Literal["nmos", "pmos", "npn", "pnp", "resistor", "capacitor", "inductor", "diode", "voltage_source", "current_source", "xor", "pfd", "inverter", "transmission_gate"]
 Entity = Literal["device", "transistor", "mos", "bjt", "port", "net", "nmos", "pmos", "npn", "pnp", "resistor", "capacitor", "inductor", "diode", "voltage_source", "current_source", "xor", "pfd", "inverter", "transmission_gate"]
 Alias = Annotated[str, Field(pattern=r"^[A-Za-z][A-Za-z0-9_]{0,31}$")]
@@ -34,7 +39,7 @@ class PortBinding(Contract):
 
 class NetCondition(Contract):
     net: Alias
-    condition: Literal["not_rail", "external"]
+    condition: Literal["not_rail", "external", "supply", "ground", "rail"]
 
 
 class SignalStage(Contract):

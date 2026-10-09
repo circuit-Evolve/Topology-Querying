@@ -107,10 +107,28 @@ def quote_patterns_valid(text,quote,patterns,audit):
         if not connected(pattern) or (audit['signal_stage_count'] and len(pattern.signal_stages)!=audit['signal_stage_count']):return False
         if not all(any(d.type in GROUPS.get(e,[e]) for d in pattern.devices) for e in types):return False
         if not explicit_terminals_valid(pattern,audit['wiring']):return False
+        if not explicit_net_roles_valid(pattern,audit['wiring']):return False
         if differential and pattern.signal_stages:
             first=pattern.signal_stages[0]
             controls={edge.net for edge in pattern.edges if edge.device in first.devices and edge.terminal in {'gate','base'}}
             if len(first.devices)<2 or len(set(first.input_nets))<2 or not set(first.input_nets)<=controls:return False
+    return True
+
+
+def explicit_net_roles_valid(pattern,clauses):
+    """Do not replace explicit terminal/rail/interface clauses with disclaimers.
+
+    Bounded literal phrasing only; naming conventions are not voltage proof.
+    Conditions must be on the very net bound to the requested terminal.
+    """
+    roles=re.compile(r'\b(gate|drain|source|bulk|base|collector|emitter)\s+(?:connects?\s+to|is\s+connected\s+to|is\s+tied\s+to)\s+(?:an?\s+)?(?:distinct\s+)?(external\s+(?:input\s+|output\s+)?(?:net|node)|supply\s+rail|ground\s+rail|rail)\b',re.I)
+    conditions={n:{c.condition for c in pattern.net_conditions if c.net==n} for n in pattern.nets}
+    for clause in clauses:
+        for match in roles.finditer(clause):
+            terminal,role=match.groups();role=role.lower()
+            expected={'external'} if role.startswith('external') else {role.split()[0]}
+            if re.search(r'\b(?:input|output)\b',role):expected.add('not_rail')
+            if not any(e.terminal==terminal.lower() and expected<=conditions[e.net] for e in pattern.edges):return False
     return True
 
 def stage_interfaces(pattern):
