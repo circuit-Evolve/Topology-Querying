@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {studioPayload, exportName, previewScale, importPayload, stateFromArtifact} from '../../src/circuit_workbench/static/studio.mjs';
+import {studioPayload, exportName, previewScale, importPayload, stateFromArtifact, artifactRestorePolicy} from '../../src/circuit_workbench/static/studio.mjs';
 
 test('prompt-only generation never requires a user netlist',()=>{
   const p=studioPayload({mode:'prompt',prompt:'Draw a mirror',provider:'codex',style:'connected'});
@@ -22,4 +22,9 @@ test('explicit import retains generated provenance rather than claiming verified
 test('reopening a proposed artifact restores prompt mode rather than stale library controls',()=>{
   const s=stateFromArtifact({source:{kind:'proposed',prompt:'draw OTA',provider:'codex'},request:{model:'',style:'connected'},netlist:'M1',description:'OTA',ports:'in out'});
   assert.equal(s.mode,'prompt');assert.equal(s.prompt,'draw OTA');assert.equal(s.source_id,'');
+});
+test('automatic preview restoration preserves the unfinished form draft',()=>{
+  assert.deepEqual(artifactRestorePolicy('', 'saved-A'),{id:'saved-A',restoreForm:false});
+  assert.deepEqual(artifactRestorePolicy('explicit-B','saved-A'),{id:'explicit-B',restoreForm:true});
+  assert.equal(artifactRestorePolicy('',''),null);
 });

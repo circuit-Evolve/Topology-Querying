@@ -89,6 +89,23 @@ def alias_matches(alias,text):
     return bool(re.search(r"(?<!\w)"+re.escape(alias)+r"s?(?!\w)",text))
 
 
+def block_intent(aliases,text):
+    """Only positive, explicit containment can create a compulsory block."""
+    positive,negative,optional=False,False,False
+    for clause in re.split(r'[.;!?]',text):
+        for alias in aliases:
+            for match in re.finditer(r'(?<!\w)'+re.escape(alias)+r's?(?!\w)',clause):
+                before=clause[max(0,match.start()-60):match.start()]
+                after=clause[match.end():match.end()+60]
+                if re.search(r'\b(?:without|no|not|excluding|exclude)\b[^,]{0,40}$',before):
+                    negative=True
+                elif re.search(r'\b(?:optional|optionally|preferably)\b',before[-30:]) or re.search(r'^\s+(?:is\s+)?(?:optional|preferred|not required)\b',after):
+                    optional=True
+                elif re.search(r'\b(?:with|containing|contains|includes?|using|has|having)\b[^,]{0,60}$',before):
+                    positive=True
+    return positive and not negative and not optional,negative,optional
+
+
 def relevant_rules(text):
     book=load_rulebook()
     normalized = text.lower()
@@ -101,6 +118,14 @@ def relevant_rules(text):
 
 def ground_plan(text, plan):
     plan=SearchPlan.model_validate(plan.model_dump())
+    # A provider-selected block is interpretation, not proof of a compulsory
+    # requirement. Curated explicit containment below is grounded independently.
+    for block in plan.required_blocks:
+        for pattern in block.alternatives:
+            if len(plan.hypotheses)<5:
+                plan.hypotheses.append(Hypothesis(interpretation='Model-inferred block: '+block.name,pattern=pattern))
+        plan.unverified_requirements.append(Unverified(requirement=block.name,reason='Provider-selected block retained as a hypothesis, not an independently grounded hard requirement.',evidence_needed='Explicit containment wording and curated wiring evidence or an explicit terminal-level pattern.'))
+    plan.required_blocks=[]
     counts,questions=parse_counts(text)
     recognized={c.entity for c in counts}
     for c in plan.count_constraints:
@@ -157,13 +182,20 @@ def ground_plan(text, plan):
                 if re.search(r"\b"+kind+r"\b",normalized):
                     patterns=[p for p in patterns if any(d["type"]==kind for d in p["devices"])]
                     break
-            contains=any(re.search(r"\b(?:with|containing|contains|includes?|using|has|having)\b[^.;]{0,60}"+re.escape(a),normalized) for a in primitive["aliases"])
-            if parents or contains:
+            contains,negative,optional=block_intent(primitive['aliases'],normalized)
+            if negative:
+                plan.clarification_questions.append('Absence of '+primitive['name']+' cannot be verified by V1 block containment. Use a positive structural request or an explicit read-only Cypher absence query.')
+                continue
+            if optional:
+                for pattern in patterns:
+                    if len(plan.hypotheses)<5:plan.hypotheses.append(Hypothesis(interpretation='Optional '+primitive['name']+'; ranking evidence only.',pattern=GraphPattern.model_validate(pattern)))
+                continue
+            if contains:
                 if patterns:
                     block=RequiredBlock(name='Current mirror' if generic_mirror else primitive["name"],alternatives=[GraphPattern.model_validate(p) for p in patterns[:5]])
                     plan.required_blocks=[b for b in plan.required_blocks if b.name!=block.name and not ('mirror' in b.name.lower() and 'mirror' in block.name.lower())]+[block]
                 # Leave parent-function hypotheses intact: mirror containment is
                 # eligibility evidence, not a replacement for parent function.
-            elif len(direct)==1:
+            elif len(direct)==1 and not parents:
                 plan.hypotheses=[Hypothesis(interpretation=primitive["description"]+" (curated wiring candidate; not functional proof)",pattern=GraphPattern.model_validate(p)) for p in patterns[:5]]
     return SearchPlan.model_validate(plan.model_dump())

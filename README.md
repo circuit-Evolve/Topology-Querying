@@ -141,6 +141,10 @@ within that same circuit. Unknown terms/custom patterns remain supported through
 the validated model plan; this is not a closed circuit-family menu. Smaller models
 are not guaranteed frontier-level accuracy; identical validated plans do use the
 same query compiler and ranking regardless of provider.
+Model-inferred blocks stay hypotheses unless explicit positive containment can be
+grounded in curated wiring rules. Optional blocks do not filter results. Requests
+for absence of a named block ask for clarification in V1 instead of reversing
+their meaning; the expert Cypher console supports explicit absence queries.
 
 For reproducible live checks, run `PYTHONPATH=src .venv/bin/python
 scripts/verify-natural-search.py --case mirror --strategy prototypes` as one

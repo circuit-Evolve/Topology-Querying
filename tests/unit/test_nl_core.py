@@ -49,6 +49,39 @@ def test_mirror_inside_opamp_is_required_block_not_parent_function():
     assert len(result.required_blocks[0].alternatives) == 4
 
 
+@pytest.mark.parametrize('text',[
+    'Find an op amp without a current mirror',
+    'Find an op amp with no current mirror',
+])
+def test_negated_block_is_not_inverted_into_compulsory_containment(text):
+    from circuit_workbench.nl_core import ground_plan
+    from circuit_workbench.nl_schema import SearchPlan
+    result=ground_plan(text,SearchPlan())
+    assert not result.required_blocks
+    assert result.clarification_questions  # V1 has no absence-of-block contract.
+
+
+@pytest.mark.parametrize('text',[
+    'Find an op amp. A current mirror is optional.',
+    'Find an op amp with an optional current mirror.',
+])
+def test_optional_block_does_not_filter_eligible_circuits(text):
+    from circuit_workbench.nl_core import ground_plan
+    from circuit_workbench.nl_schema import SearchPlan
+    result=ground_plan(text,SearchPlan())
+    assert not result.required_blocks and not result.clarification_questions
+
+
+def test_model_cannot_promote_an_unrequested_block_to_hard_eligibility():
+    from circuit_workbench.nl_core import ground_plan,load_rulebook
+    from circuit_workbench.nl_schema import SearchPlan,RequiredBlock,GraphPattern
+    pattern=next(p for p in load_rulebook()['primitives'] if p['id']=='mos_diff_pair')['patterns'][0]
+    model=SearchPlan(required_blocks=[RequiredBlock(name='inferred differential pair',alternatives=[GraphPattern.model_validate(pattern)])])
+    result=ground_plan('Find op amp candidates with fewer than 20 transistors',model)
+    assert not result.required_blocks
+    assert any(h.pattern==model.required_blocks[0].alternatives[0] for h in result.hypotheses)
+
+
 def test_full_rulebook_patterns_match_actual_typed_contracts():
     from circuit_workbench.nl_core import load_rulebook, relevant_rules
     book=load_rulebook()

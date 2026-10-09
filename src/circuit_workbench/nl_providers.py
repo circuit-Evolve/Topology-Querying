@@ -80,13 +80,22 @@ def run_process(command, prompt, cwd, env, cancel, timeout=180):
                 raise ValueError("Model output exceeded the safety limit.")
             return answer
         finally:
-            if process.poll() is None:
+            # The session leader may exit before its children. Finish cleanup of
+            # this owned group regardless of leader state; never target other jobs.
+            try:
                 os.killpg(process.pid, signal.SIGTERM)
-                try:
-                    process.wait(timeout=2)
-                except subprocess.TimeoutExpired:
-                    os.killpg(process.pid, signal.SIGKILL)
-                    process.wait(timeout=2)
+            except ProcessLookupError:
+                pass
+            else:
+                deadline=time.monotonic()+2
+                while time.monotonic()<deadline:
+                    process.poll()
+                    try:os.killpg(process.pid,0)
+                    except ProcessLookupError:break
+                    time.sleep(.05)
+                try:os.killpg(process.pid,signal.SIGKILL)
+                except ProcessLookupError:pass
+            process.wait(timeout=2)
 
 
 def transport(schema, prompt, provider, model, cancel):

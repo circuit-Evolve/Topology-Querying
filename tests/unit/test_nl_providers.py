@@ -36,6 +36,28 @@ def test_owned_process_timeout_and_cancellation(tmp_path):
         run_process([sys.executable, "-c", "print('unused')"], "", tmp_path, {}, event)
 
 
+@pytest.mark.skipif(sys.platform=='win32',reason='POSIX process groups')
+def test_timeout_kills_owned_descendants_even_when_leader_exits(tmp_path):
+    import os,signal,subprocess
+    from circuit_workbench.nl_providers import run_process
+    pidfile=tmp_path/'owned-child.pid'
+    child="import os,signal,time,pathlib; signal.signal(signal.SIGTERM,signal.SIG_IGN); pathlib.Path(%r).write_text(str(os.getpid())); time.sleep(60)" % str(pidfile)
+    parent="import subprocess,sys,time; subprocess.Popen([sys.executable,'-c',%r]); time.sleep(60)" % child
+    unrelated=subprocess.Popen([sys.executable,'-c','import time; time.sleep(60)'],start_new_session=True)
+    try:
+        with pytest.raises(ValueError,match='timed out'):
+            run_process([sys.executable,'-c',parent],'',tmp_path,{},threading.Event(),timeout=.5)
+        assert pidfile.exists()
+        status=subprocess.run(['ps','-o','stat=','-p',pidfile.read_text()],capture_output=True,text=True).stdout.strip()
+        assert not status or status.startswith('Z'), 'owned child survived process-group cleanup'
+        assert unrelated.poll() is None
+    finally:
+        if pidfile.exists():
+            try:os.kill(int(pidfile.read_text()),signal.SIGKILL)
+            except ProcessLookupError:pass
+        unrelated.terminate();unrelated.wait(timeout=3)
+
+
 def test_cli_builders_disable_tools_without_shell_interpolation(tmp_path):
     from circuit_workbench.nl_providers import cli_command
     cmd = cli_command("codex", tmp_path, "gpt-test", tmp_path/"schema.json", tmp_path/"answer.json")
