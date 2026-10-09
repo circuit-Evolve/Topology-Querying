@@ -153,6 +153,13 @@ interfaces; this is wiring evidence, not a simulation-certified stage count.
 A direct reciprocal gate–drain/base–collector regenerative branch is not counted
 as an extra feedforward gain stage. This is a conservative wiring proxy, not a
 general analysis of feedback or operating gain.
+
+**Accuracy status:** the ten-prompt researcher audit is complete, but not every
+search passed functional review. Clocked-comparator and broad two-stage requests
+still produce some wrong-function/embedded-stage matches, and omitted model
+alternatives can cause false negatives. Do not treat an eligible graph match as
+a verified circuit family or exact operating stage count. See the
+[latest results and remaining failures](docs/search-fidelity-evaluation.md#ten-prompt-live-audit-completed--10-october-2026).
 Different pattern net aliases mean different physical nets; intentionally shared
 connections must reuse one alias. Resistors/capacitors/inductors match either
 terminal orientation. Explicit terminal/interface clauses can require external

@@ -1,5 +1,11 @@
 # Search fidelity audit · 9 October 2026
 
+> Latest follow-up: the ten researcher prompts have now all been exercised and
+> source-reviewed. This is **not ten accuracy passes**: clocked-comparator and
+> broad two-stage searches still have functional false positives, and a zero
+> three-stage result does not establish corpus absence. See the 10 October
+> completion section below.
+
 This is a sampled development audit, **not a general electrical-accuracy
 benchmark**. It tests explicit structural requirements and records where named
 functions/performance cannot be verified. No circuit IDs are used by product
@@ -163,3 +169,78 @@ interpretation, an overly narrow pattern may miss a valid variant, a named
 function can match an incidental subcircuit, and simulation/spec values are
 unavailable. Inspection is still necessary. Near misses stay separately labelled
 and cannot turn "no full matches" into an apparently successful exact search.
+
+## Ten-prompt live audit completed · 10 October 2026
+
+Audit scope: the original ten researcher prompts, with live browser tests starting
+at number 3 as requested. Numbers 1–2 already had successful browser captures;
+their saved plans were replayed against current Neo4j/source records. Successful
+earlier conversions were not all reissued just to consume another model call.
+Latest Codex default is **gpt-5.6-sol / high**, after the requested 6.1 model proved
+unavailable to this CLI login. Prompt 4's successful capture predates this switch.
+Ollama/Claude have no live accuracy evidence on this machine.
+
+| # | Request, abbreviated | Observed outcome and source judgement |
+| --- | --- | --- |
+| 1 | Differential input → separate common-source stage, interstage capacitor, <25 transistors | Existing live capture: 10 displayed, including 884/926/2032. Current saved-plan replay: 90 hard-filter candidates, all literal/source-witness checks passed. Original 884 schematic/netlist supports the requested path. Replay is not a fresh conversion or ranking. |
+| 2 | PMOS input pair, NMOS mirror load and output stage, interstage capacitor, ≤12 transistors | Fixed polarity scoping. Existing fresh browser capture: 10, with 884 first. Current replay: 10, literal/source-witness checks passed. |
+| 3 | NMOS input pair with separate source-degeneration resistors, R≥2, <20 transistors | Fresh corrected conversion: 220 only. M2/M0 connect through separate R3/R2 to common net06; original drawing agrees. Earlier loose eight-hit scan was not eight verified amplifiers. |
+| 4 | Diode-reference NMOS mirror with cascoded output, <16 transistors | 20 displayed; all passed literal mirror/stack terminal checks. 108/672 drawings support cascode mirrors. Some lower hits contain that block in a larger circuit rather than being standalone mirrors. |
+| 5 | NMOS source follower: external gate input, supply drain, distinct external source output; ≤6 transistors | Corrected conversion: 20 displayed/20 eligible; all literal interface checks passed. 20 is a straightforward follower; 421/57 have follower-like branches inside more complicated networks. Whole-circuit function is not universally established. |
+| 6 | Differential comparator, cross-coupled PMOS load and output stage; >8/<24 transistors, no L | Fresh corrected conversion: 1035 only. Netlist and original caption support a comparator with internal hysteresis/output stage. Unrequested output polarity/rail alias previously caused false zero. |
+| 7 | Clocked comparator: differential input, regenerative latch, external clock-controlled tail/reset; <24 transistors | Successful run: 1062/559/560/564/1039/565. All passed the generated literal plan. 1062 is a credible clocked-comparator candidate; 1039 has a gated preamplifier/latch. Logic-latch/divider false positives remain. Final fresh retry timed out during conversion at 180 s; this is a failure, not zero matches. |
+| 8 | Differential amplifier containing a mirror, <16 transistors; optional C, prefer two stages | Fresh corrected run: 20 displayed/446 eligible. All 20 passed independent pair/mirror checks. 675/155/889 source drawings support differential amplifiers with mirror loading. Single-stage hits are allowed because two stages were a preference, not a requirement. A preexisting uploaded OTA draft remains a draft. |
+| 9 | Differential input → two distinct common-source stages in sequence; C≥2, <20 transistors | Fresh run: zero full matches, five separately labelled partials; 94.74 s. Current Neo4j replay also zero. Plan used only all-NMOS/all-PMOS alternatives. Broader independent mixed-polarity enumeration found wiring paths in 1004/1009, but source review does not establish three operating gain stages: mirror/bias paths can look like cascades, and 1009's apparent final node is a bias interface. Therefore **no corpus-absence claim**. |
+| 10 | Two-stage op-amp, C≥1, DC gain≥60 dB, phase margin≥60° | Final fresh browser run completed in 65.36 s without database timeout: 989/1074/910/574/1050. All passed generated literal wiring/count checks, but only 989 is a plausible broad two-stage amplifier candidate. 1074/1050 are comparator networks; 574 is a feedback/switch network; 910's drawing has a three-stage path, so its embedded two-stage match is insufficient. Gain/phase margin were visibly marked unverified. **Functional accuracy failed for this result set.** |
+
+### Verification performed and what it does not prove
+
+Every displayed record from 3–8 and 10 (73 records, including repeated IDs across
+requests) was checked against source counts, canonical terminal connections and
+the current mandatory-plan witness validator. Independent hand-derived terminal
+checks supplement this, but they too are only wiring proxies: prompt 10
+demonstrates that those checks can pass while whole-circuit function/stage count
+is wrong. Original drawings were inspected for representative positive results
+and **all six prompt-7 and all five prompt-10 results**. Previously inspected
+drawings/netlists were not claimed as new inspections.
+
+For prompt 9, all 3,352 records were screened: 772 satisfy its counts. Eight MOS
+polarity combinations were independently enumerated, with a direct reciprocal
+feedback exclusion; 1004/1009 require further functional interpretation rather
+than being accepted as confirmed three-stage amplifiers. Reciprocal paths in
+574/1074 were excluded. This is not an exhaustive analog-topology classifier.
+
+Fresh final software verification: **306 Python tests passed, 19 skipped**, one
+existing Starlette/httpx deprecation warning; **18 Node UI tests passed**;
+separate live Neo4j composite integration: **1 passed**. All 15 earlier saved
+audit cases also passed their current structural checks in offline replay. None
+of these statements imply 100% named-function accuracy or equal model quality.
+
+The database timeout fix restricts optional hypothesis queries to the already
+hard-filtered/source-validated candidate IDs, rather than repeating mandatory
+joins. A captured failing workload replayed with individual soft queries below
+1.5 s; the final prompt-10 live run succeeded. Conversion still has a separate
+180 s deadline and can time out. Increasing deadlines is not an accuracy fix.
+
+Local, ignored evidence: `output/researcher-live-20261010/case-*.json`, provider
+`run-*.json`/`failure-*.json`, `final-source-recheck.json`, and UI screenshots.
+The final replay helper never calls a provider or mutates circuit records.
+It is evaluation-only and is not imported by production. Runtime inspection
+found no result-ID lists or full audit-prompt routing branches. Existing 1004
+examples demonstrate explicit reference-ID syntax, not a search answer whitelist.
+
+### Remaining work, not hidden by the audit
+
+- Whole-circuit function and coherent signal interfaces need stronger evidence:
+  independent blocks can match incidental/bias/logic structures in one circuit.
+- Two-stage containment does not prove **exactly** two operating gain stages.
+- Model-generated alternatives may omit valid polarity/topology variants, causing
+  false negatives. Identical plans are provider-independent; different model
+  interpretations are not guaranteed to be equally accurate.
+- Missing models, values and operating conditions prevent measured gain,
+  stability or clock-waveform verification.
+
+This follow-up finishes the requested testing, **not those unresolved accuracy
+problems**. No prompt-specific special cases, result-ID exclusions, dataset edits,
+new model installations, or silent hard-filter relaxation were used to force a
+successful-looking answer.
