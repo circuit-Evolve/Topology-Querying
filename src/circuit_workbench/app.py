@@ -18,6 +18,11 @@ from .uploads import parse_upload
 from .retrieval import Retrieval, port_role
 from .neo4j import Neo4jService
 from .settings import Settings
+from .nl_schema import NaturalRequest
+from .nl_providers import provider_status
+from .nl_search import NaturalSearch
+from .nl_jobs import SearchJobs
+from .nl_core import load_rulebook
 
 STATIC = Path(__file__).parent / "static"
 
@@ -55,6 +60,8 @@ def create_app(settings=None, background=True):
     catalog = Catalog(settings.state, settings.corpus, settings.upstream)
     retrieval = Retrieval(catalog)
     neo = Neo4jService(settings, catalog)
+    natural = NaturalSearch(catalog, neo, retrieval)
+    jobs = SearchJobs(natural.run)
     stopped = threading.Event()
 
     def worker():
@@ -77,10 +84,12 @@ def create_app(settings=None, background=True):
             threading.Thread(target=worker, daemon=True, name="circuit-indexer").start()
         yield
         stopped.set()
+        jobs.stop()
         neo.driver.close()
 
     app = FastAPI(title="Circuit Atlas", lifespan=lifespan)
     app.state.catalog, app.state.retrieval, app.state.neo4j = catalog, retrieval, neo
+    app.state.natural, app.state.search_jobs = natural, jobs
     app.add_middleware(TrustedHostMiddleware, allowed_hosts=["127.0.0.1", "localhost", "testserver"])
 
     @app.middleware("http")
@@ -119,6 +128,26 @@ def create_app(settings=None, background=True):
     def circuits(search: str = "", dataset: str = "", device: str = "", family: str = "",
                  offset: int = Query(0, ge=0), limit: int = Query(40, ge=1, le=100)):
         return catalog.list(search, dataset, device, family, offset, limit)
+
+    @app.get("/api/natural/providers")
+    def providers():
+        return provider_status()
+
+    @app.get("/api/natural/rulebook")
+    def rulebook():
+        return load_rulebook()
+
+    @app.post("/api/natural/jobs")
+    def start_search(request: NaturalRequest):
+        return jobs.start(request.model_dump())
+
+    @app.get("/api/natural/jobs/{identifier}")
+    def search_job(identifier: str):
+        return jobs.get(identifier)
+
+    @app.delete("/api/natural/jobs/{identifier}")
+    def cancel_search(identifier: str):
+        return jobs.cancel(identifier)
 
     @app.get("/api/circuits/{identifier}")
     def detail(identifier: str):

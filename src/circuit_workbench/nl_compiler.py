@@ -34,6 +34,13 @@ def compile_query(plan: SearchPlan, pattern: GraphPattern | None = None):
         clause, values = compile_pattern(pattern, "")
         predicates.append(f"EXISTS {{ {clause} }}")
         params.update(values)
+    for i, block in enumerate(plan.required_blocks):
+        alternatives = []
+        for j, alternative in enumerate(block.alternatives):
+            clause, values = compile_pattern(alternative, f"block{i}alt{j}")
+            alternatives.append(f"EXISTS {{ {clause} }}")
+            params.update(values)
+        predicates.append("(" + " OR ".join(alternatives) + ")")
     query = "MATCH (c:Circuit)"
     if predicates:
         query += "\nWHERE " + "\nAND ".join(predicates)
@@ -48,13 +55,17 @@ def compile_pattern(pattern, prefix):
     for i, d in enumerate(pattern.devices):
         key = f"{prefix}type{i}"
         params[key] = d.type
-        matches.append(f"(c)-[:HAS_DEVICE]->({devices[d.alias]}:Device {{canonical_type: ${key}}})")
+        if i == 0:
+            matches.append(f"(c)-[:HAS_DEVICE]->({devices[d.alias]}:Device {{canonical_type: ${key}}})")
+        else:
+            where.append(f"{devices[d.alias]}.canonical_type = ${key}")
+            where.append(f"EXISTS {{ (c)-[:HAS_DEVICE]->({devices[d.alias]}) }}")
     for n in nets.values():
-        matches.append(f"(c)-[:HAS_NET]->({n}:Net)")
+        where.append(f"EXISTS {{ (c)-[:HAS_NET]->({n}) }}")
     for i, e in enumerate(pattern.edges):
         key = f"{prefix}terminal{i}"
         params[key] = e.terminal
-        matches.append(f"({devices[e.device]})-[:CONNECTED_TO {{terminal: ${key}}}]->({nets[e.net]})")
+        matches.append(f"({devices[e.device]}:Device)-[:CONNECTED_TO {{terminal: ${key}}}]->({nets[e.net]}:Net)")
     for i, p in enumerate(pattern.ports):
         key = f"{prefix}port{i}"
         params[key] = p.name

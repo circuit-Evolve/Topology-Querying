@@ -135,6 +135,22 @@ class Neo4jService:
         result["graph"]["truncated"] |= result["truncated"]
         return result["graph"]
 
+    def candidate_query(self, text, parameters=None):
+        """Internal scalar retrieval, independent of console/display graph caps."""
+        query = validate_cypher(text)
+        with self.driver.session(database=self.settings.neo4j_database, default_access_mode=READ_ACCESS) as session:
+            with session.begin_transaction(timeout=10) as tx:
+                if tx.run("EXPLAIN " + query, parameters or {}).consume().query_type != "r":
+                    raise ValueError("Candidate query must be read-only.")
+                rows = []
+                for row in tx.run(query, parameters or {}):
+                    if len(rows) == 10000:
+                        tx.rollback()
+                        return {"rows": rows, "truncated": True}
+                    rows.append({"circuit_id": str(row["circuit_id"])})
+                tx.rollback()
+                return {"rows": rows, "truncated": False}
+
     def sync(self):
         if not self.lock.acquire(blocking=False):
             return

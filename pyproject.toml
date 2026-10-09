@@ -30,7 +30,7 @@ where = ["src"]
 
 [tool.setuptools.package-data]
 circuit_ingest = ["assets/*.txt"]
-circuit_workbench = ["static/*", "static/vendor/*"]
+circuit_workbench = ["static/*", "static/vendor/*", "search-rulebook.json"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
