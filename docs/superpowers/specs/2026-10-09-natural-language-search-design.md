@@ -138,11 +138,15 @@ The initial multi-interpretation feature generates partial structural query plan
 not complete dummy circuits. A MATCH query is a selector, not a circuit graph
 that can be passed to the current topology fingerprint.
 
-Full generated prototypes remain a later experiment: they need actual validated
-canonical circuit graphs, the same topology encoder, distinct meaningful variants
-and evaluation against this simpler pipeline. Keep them temporary and out of the
-dataset. Partial query-pattern matching is not equivalent to full-circuit cosine
-similarity. This milestone must work without hypothetical-circuit embeddings.
+Implement a toggleable experimental prototype mode alongside query-pattern mode.
+The selected provider generates four or five temporary typed netlists with ports,
+descriptions and rationale. Validate them with the existing parser, bound each to
+64 devices, reject duplicates, and encode accepted graphs with terminal-wl-v3.
+Use best-prototype cosine followed by full-profile reranking over eligible real
+circuits. Hard requirements still apply before ranking. Never ingest prototypes
+into the dataset or present them as simulated/working circuits. Expose their
+netlists and validation diagnostics. Partial query-pattern matching is not
+equivalent to full-circuit cosine similarity; compare both empirically.
 
 ## Provider adapters
 
@@ -181,7 +185,7 @@ querying and ranking states. Errors retain the draft. Surface clarification,
 unsupported requirements, provider failure, index/Neo4j unavailability, zero
 matches and weaker candidate tiers separately.
 
-Add server-side provider status, plan-generation and execute-plan endpoints.
+Add server-side provider status and cancellable search-job endpoints.
 Validate submitted plans again on execution. Do not allow a browser client to
 submit arbitrary planner-generated Cypher through the new endpoint. Keep direct
 expert Cypher use in its existing guarded endpoint.
@@ -215,6 +219,10 @@ query history, uploads, user edits and reference-only similarity behavior.
 Evaluate on a small reviewed set of varied engineer-style requests before claiming
 general functional retrieval accuracy. Syntax/schema validation proves neither
 the interpretation nor the returned circuit's electrical behavior.
+
+Manually inspect top results' original schematic images and netlists for both
+strategies; record supported, questionable and incorrect matches with reasons.
+Report live-provider checks separately from adapter tests or unavailable models.
 
 ## Provider references
 

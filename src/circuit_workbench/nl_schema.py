@@ -1,0 +1,127 @@
+"""Bounded, declarative search contracts; no model-authored executable queries."""
+from typing import Annotated, Literal
+from pydantic import BaseModel, ConfigDict, Field, StrictInt, model_validator
+from circuit_ingest.registry import DEVICE_SPECS
+
+TERMINALS = {s.canonical_type: s.terminals for s in DEVICE_SPECS.values()}
+TERMINALS.update(voltage_source=("p", "n"), current_source=("p", "n"))
+DeviceType = Literal["nmos", "pmos", "npn", "pnp", "resistor", "capacitor", "inductor", "diode", "voltage_source", "current_source", "xor", "pfd", "inverter", "transmission_gate"]
+Entity = Literal["device", "transistor", "mos", "bjt", "port", "net", "nmos", "pmos", "npn", "pnp", "resistor", "capacitor", "inductor", "diode", "voltage_source", "current_source", "xor", "pfd", "inverter", "transmission_gate"]
+Alias = Annotated[str, Field(pattern=r"^[A-Za-z][A-Za-z0-9_]{0,31}$")]
+Text = Annotated[str, Field(max_length=2000)]
+
+
+class Contract(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+
+class PatternDevice(Contract):
+    alias: Alias
+    type: DeviceType
+
+
+class Edge(Contract):
+    device: Alias
+    terminal: Annotated[str, Field(max_length=24)]
+    net: Alias
+
+
+class PortBinding(Contract):
+    net: Alias
+    name: Annotated[str, Field(min_length=1, max_length=100)]
+
+
+class GraphPattern(Contract):
+    devices: list[PatternDevice] = Field(min_length=1, max_length=16)
+    nets: list[Alias] = Field(min_length=1, max_length=24)
+    edges: list[Edge] = Field(min_length=1, max_length=64)
+    ports: list[PortBinding] = Field(default_factory=list, max_length=24)
+    distinct_nets: list[tuple[Alias, Alias]] = Field(default_factory=list, max_length=64)
+
+    @model_validator(mode="after")
+    def consistent(self):
+        kinds = {d.alias: d.type for d in self.devices}
+        if len(kinds) != len(self.devices) or len(set(self.nets)) != len(self.nets):
+            raise ValueError("Pattern aliases must be unique.")
+        seen = set()
+        for e in self.edges:
+            if e.device not in kinds or e.net not in self.nets:
+                raise ValueError("An edge references an undeclared device or net.")
+            if e.terminal not in TERMINALS[kinds[e.device]]:
+                raise ValueError("Terminal is incompatible with its device type.")
+            if (e.device, e.terminal) in seen:
+                raise ValueError("Each device terminal can bind to one net only.")
+            seen.add((e.device, e.terminal))
+        if set(kinds) != {e.device for e in self.edges} or set(self.nets) != {e.net for e in self.edges}:
+            raise ValueError("Every declared device and net needs a terminal edge.")
+        if any(p.net not in self.nets for p in self.ports):
+            raise ValueError("Port references an undeclared net.")
+        if any(a not in self.nets or b not in self.nets or a == b for a, b in self.distinct_nets):
+            raise ValueError("Invalid distinct-net condition.")
+        return self
+
+
+class CountConstraint(Contract):
+    entity: Entity
+    operator: Literal["eq", "gt", "ge", "lt", "le"]
+    value: Annotated[StrictInt, Field(ge=0, le=100000)]
+
+
+class PropertyConstraint(Contract):
+    field: Literal["dataset", "family", "topology", "input_mode", "output_mode", "stage_count"]
+    value: Annotated[str, Field(max_length=200)] | StrictInt
+
+    @model_validator(mode="after")
+    def typed(self):
+        if self.field == "stage_count":
+            if type(self.value) is not int or not 1 <= self.value <= 20:
+                raise ValueError("stage_count must be an annotated integer from 1 to 20.")
+        elif not isinstance(self.value, str):
+            raise ValueError("This stored property needs a text value.")
+        return self
+
+
+class Hypothesis(Contract):
+    interpretation: Text
+    pattern: GraphPattern
+
+
+class Unverified(Contract):
+    requirement: Text
+    reason: Text
+    evidence_needed: Text
+
+
+class SearchPlan(Contract):
+    schema_version: Literal["1"] = "1"
+    requested_function: Text = ""
+    requested_topology: Text = ""
+    count_constraints: list[CountConstraint] = Field(default_factory=list, max_length=20)
+    property_constraints: list[PropertyConstraint] = Field(default_factory=list, max_length=10)
+    required_pattern: GraphPattern | None = None
+    hypotheses: list[Hypothesis] = Field(default_factory=list, max_length=5)
+    semantic_text: Text = ""
+    reference_id: Annotated[str, Field(max_length=200)] = ""
+    unverified_requirements: list[Unverified] = Field(default_factory=list, max_length=20)
+    clarification_questions: list[Text] = Field(default_factory=list, max_length=10)
+
+
+class Prototype(Contract):
+    name: Annotated[str, Field(min_length=1, max_length=150)]
+    description: Annotated[str, Field(min_length=1, max_length=2000)]
+    netlist: Annotated[str, Field(min_length=1, max_length=16000)]
+    ports: Annotated[str, Field(max_length=2000)]
+    rationale: Text
+
+
+class PrototypeBatch(Contract):
+    prototypes: list[Prototype] = Field(min_length=4, max_length=5)
+
+
+class NaturalRequest(Contract):
+    text: Annotated[str, Field(min_length=1, max_length=6000)]
+    strategy: Literal["patterns", "prototypes"] = "patterns"
+    provider: Literal["codex", "ollama", "claude"] = "codex"
+    model: Annotated[str, Field(max_length=150, pattern=r"^[A-Za-z0-9_.:/-]*$")] = ""
+    reference_id: Annotated[str, Field(max_length=200)] = ""
+    limit: Annotated[StrictInt, Field(ge=1, le=100)] = 20
