@@ -34,6 +34,11 @@ def parse_counts(text):
     comparison = "|".join(re.escape(c) for c in sorted(COMPARISONS,key=len,reverse=True))
     number = lambda s: WORDS[s] if s in WORDS else int(s)
     for entity, noun in ENTITIES.items():
+        # Coordinated comparisons can share a final noun: "more than 8 but
+        # fewer than 24 transistors" must preserve both bounds independently.
+        for m in re.finditer(rf'(?<![\w.])({comparison})\s*({NUMBER})\s+(?:but|and)\s+({comparison})\s*({NUMBER})\s+(?:{noun})\b',lowered):
+            matches += [(m.start(),entity,COMPARISONS[m.group(1)],number(m.group(2))),
+                        (m.start(3),entity,COMPARISONS[m.group(3)],number(m.group(4)))]
         range_pattern = rf"\b(?:between\s+({NUMBER})\s+and\s+({NUMBER})|({NUMBER})\s*(?:to|–|-)\s*({NUMBER}))\s+({noun})\b"
         ranges = []
         for m in re.finditer(range_pattern, lowered):

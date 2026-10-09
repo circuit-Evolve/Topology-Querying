@@ -8,6 +8,8 @@ import pytest
     ("between 10 and 20 MOS transistors and exactly two resistors",[("mos","ge",10),("mos","le",20),("resistor","eq",2)]),
     ("at most 5 NMOS and 4 PMOS",[("nmos","le",5),("pmos","eq",4)]),
     ("2 output ports",[]),
+    ("more than 8 but fewer than 24 transistors",[("transistor","gt",8),("transistor","lt",24)]),
+    ("at least 3 and at most 7 capacitors",[("capacitor","ge",3),("capacitor","le",7)]),
 ])
 def test_parse_counts_has_literal_independent_expectations(prompt,want):
     from circuit_workbench.nl_core import parse_counts
