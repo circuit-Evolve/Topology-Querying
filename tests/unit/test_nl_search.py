@@ -189,3 +189,10 @@ def test_compiler_does_not_independently_enumerate_all_net_variables():
     # Net ownership is checked after terminal traversal; enumerating all circuit
     # nets before binding creates an explosive Cartesian candidate space.
     assert "EXISTS { (c)-[:HAS_NET]->(n0) }" in query
+
+
+def test_parent_amplifier_ranking_prefers_signal_input_hints_over_bias_only_pair():
+    from circuit_workbench.nl_search import ranked_candidates
+    a={'row':{'id':'signal'},'matches':[{}],'required_witness':None,'pattern_coverage':.3,'input_evidence':2,'score':.016}
+    b={'row':{'id':'bias'},'matches':[{}],'required_witness':None,'pattern_coverage':.4,'input_evidence':0,'score':.03}
+    assert ranked_candidates([b,a],'patterns')[0]['row']['id']=='signal'

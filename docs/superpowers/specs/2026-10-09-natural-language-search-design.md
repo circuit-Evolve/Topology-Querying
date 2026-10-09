@@ -58,7 +58,9 @@ Plan fields:
 - `count_constraints`: typed entity/device/category, comparison and integer value.
 - `property_constraints`: allowed stored field, typed comparison and value.
 - `required_pattern`: optional generic connection pattern explicitly requested.
+- `required_blocks`: ANDed embedded building blocks, each with ORed structural alternatives within the same parent circuit.
 - `hypotheses`: zero to five distinct partial graph patterns plus interpretation.
+- `hypothesis_rules`: curated primitive IDs expanded to typed patterns by application code, reducing model wiring burden.
 - `semantic_text`: a concise residual search description.
 - `reference_id`: optional explicit prompt reference; reconcile with the picker.
 - `unverified_requirements`: original requirement, reason and evidence needed.
@@ -149,6 +151,14 @@ netlists and validation diagnostics. Partial query-pattern matching is not
 equivalent to full-circuit cosine similarity; compare both empirically.
 
 ## Provider adapters
+
+All providers receive the same routed, versioned machine-readable electrical
+rulebook. It covers physical devices, lower-level motifs, higher-level families,
+parent-versus-contained-block intent, false positives and evidence limits. Common
+count phrases are parsed independently and override model errors; contradictions,
+placeholders and ungrounded counts trigger clarification. Do not claim weaker
+models are universally as accurate: unfamiliar function interpretation and
+generated prototypes still depend on model reasoning.
 
 Support one schema/interface for Ollama, Codex CLI and Claude Code CLI. Detect
 availability and surface authentication/model errors clearly. Do not silently

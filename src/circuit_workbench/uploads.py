@@ -111,7 +111,7 @@ def parse_upload(text: str, description: str, ports: str = "") -> CircuitRecord:
         kind = DEVICE_TYPES[d.kind].graph_kind
         conns = []
         for j, (terminal, net) in enumerate(zip(d.terminal_roles, d.nets, strict=True)):
-            terminal = {"body": "bulk", "positive": "p", "negative": "n"}.get(terminal, terminal)
+            terminal = {"body": "bulk", "positive": "p", "negative": "n", "anode": "p", "cathode": "n"}.get(terminal, terminal)
             conns.append(Connection(terminal=terminal, terminal_ordinal=j, net_id=net_ids[net]))
             degree[net] += 1
         devices.append(DeviceRecord(id=f"{identifier}:device:{i:06d}", ordinal=i, source_instance=d.instance_id,

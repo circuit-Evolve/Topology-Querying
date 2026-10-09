@@ -1,4 +1,6 @@
 import {nextZoomScale, fitImageScale} from './viewer-controls.mjs';
+import {mountNatural, naturalResultHTML} from './natural-language.mjs';
+import {mountStudio} from './studio.mjs';
 
 const $ = (selector, root=document) => root.querySelector(selector);
 const $$ = (selector, root=document) => [...root.querySelectorAll(selector)];
@@ -48,7 +50,7 @@ function bindGraphTools(panel){
 }
 let queryState;
 try {queryState=JSON.parse(localStorage.getItem('atlas-query')) || {};} catch {queryState={};}
-queryState={mode:'cypher',query:'MATCH (c:Circuit)-[:HAS_DEVICE]->(d:Device)\nRETURN c.id AS circuit_id, count(d) AS devices\nORDER BY devices DESC\nLIMIT 20',parameters:'{}',text:'',reference:'',...queryState};
+queryState={mode:'cypher',query:'MATCH (c:Circuit)-[:HAS_DEVICE]->(d:Device)\nRETURN c.id AS circuit_id, count(d) AS devices\nORDER BY devices DESC\nLIMIT 20',parameters:'{}',text:'',reference:'',strategy:'patterns',provider:'codex',model:'',limit:20,...queryState};
 let lastResult=null;
 const graphOptions={backend:'networkx',rails:false,ports:false};
 const examples=[
@@ -102,9 +104,10 @@ async function renderLibrary(){
 async function fetchLibrary(){
   const version=++libraryVersion;
   try{const data=await api('/api/circuits?'+new URLSearchParams({...lib,limit:30}));if(version!==libraryVersion||!$('#library-results'))return;
-    const rows=data.items.map(c=>`<tr data-id="${esc(c.id)}" tabindex="0" aria-label="Inspect ${esc(c.title)}"><td><div class="circuit-cell"><span class="circuit-glyph">⌁</span><div><span class="circuit-name">${esc(c.title)}</span><span class="circuit-id">${esc(c.id)}</span></div></div></td><td class="number">${c.statistics.device_count}</td><td class="number">${c.statistics.net_count}</td><td>${c.has_schematic?'<span class="pill">Schematic</span>':'<span class="muted">—</span>'}</td><td class="arrow">↗</td></tr>`).join('');
+    const rows=data.items.map(c=>`<tr data-id="${esc(c.id)}" tabindex="0" aria-label="Inspect ${esc(c.title)}"><td><div class="circuit-cell"><span class="circuit-glyph">⌁</span><div><span class="circuit-name">${esc(c.title)}</span><span class="circuit-id">${esc(c.id)}</span></div></div></td><td class="number">${c.statistics.device_count}</td><td class="number">${c.statistics.net_count}</td><td>${c.has_schematic?'<span class="pill">Schematic</span>':'<span class="muted">—</span>'}</td><td class="draw-cell"><button class="button small" data-generate="${esc(c.id)}" aria-label="Generate schematic for ${esc(c.title)}">Draw ↗</button></td></tr>`).join('');
     $('#library-results').innerHTML=(data.total?`<div class="table-wrap"><table class="library-table"><thead><tr><th>CIRCUIT</th><th>DEVICES</th><th>NETS</th><th>SOURCE</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>`:empty('No circuits found','Try another ID or keyword, or clear the filters.'))+`<div class="pagination"><span>${data.total?`${fmt(data.offset+1)}–${fmt(Math.min(data.offset+30,data.total))} of ${fmt(data.total)}`:'0 circuits'}</span><div class="pagination-controls"><button class="button small" id="previous-page" ${!lib.offset?'disabled':''}>← Previous</button><button class="button small" id="next-page" ${data.offset+30>=data.total?'disabled':''}>Next →</button></div></div>`;
-    $$('[data-id]',$('#library-results')).forEach(row=>{row.onclick=()=>openCircuit(row.dataset.id);row.onkeydown=e=>{if(e.key==='Enter')openCircuit(row.dataset.id);};});
+    $$('[data-id]',$('#library-results')).forEach(row=>{row.onclick=()=>openCircuit(row.dataset.id);row.onkeydown=e=>{if(e.key==='Enter'&&e.target===row)openCircuit(row.dataset.id);};});
+    $$('[data-generate]',$('#library-results')).forEach(button=>button.onclick=e=>{e.stopPropagation();location.hash='#studio/'+enc(button.dataset.generate);});
     $('#previous-page').onclick=()=>{lib.offset=Math.max(0,lib.offset-30);fetchLibrary();};$('#next-page').onclick=()=>{lib.offset+=30;fetchLibrary();};
   }catch(e){if($('#library-results'))$('#library-results').innerHTML=errorHTML(e.message);}
 }
@@ -117,9 +120,10 @@ function setDetailsVisible(visible){
 async function renderDetail(id,tab,version){
   main.innerHTML=loading('Opening circuit…');
   try{const c=await api(`/api/circuits/${enc(id)}`);if(version!==routeVersion)return;current=c;
-    main.innerHTML=`<div class="breadcrumb"><button id="back-library">← Circuit library</button><span>/</span><span class="mono">${esc(c.id)}</span></div><div class="detail-heading"><div><div class="eyebrow">${esc(c.dataset)} / circuit ${esc(c.source_id)}</div><h1>${esc(c.title)}</h1></div><div class="detail-actions"><button class="button" id="find-similar">⌕ Find similar</button><button class="button quiet" id="query-circuit">Query this graph ↗</button>${tab!=='metadata'?'<button class="button details-toggle" id="toggle-details" aria-expanded="false" aria-controls="detail-sidebar">Details</button>':''}</div></div><div class="tabs" role="tablist">${['graph','schematic','netlist','metadata'].map(t=>`<button role="tab" aria-selected="${t===tab}" class="${t===tab?'active':''}" data-tab="${t}">${t[0].toUpperCase()+t.slice(1)}</button>`).join('')}</div><div id="detail-body"></div>`;
+    main.innerHTML=`<div class="breadcrumb"><button id="back-library">← Circuit library</button><span>/</span><span class="mono">${esc(c.id)}</span></div><div class="detail-heading"><div><div class="eyebrow">${esc(c.dataset)} / circuit ${esc(c.source_id)}</div><h1>${esc(c.title)}</h1></div><div class="detail-actions"><button class="button" id="find-similar">⌕ Find similar</button><button class="button" id="generate-schematic">Generate schematic</button><button class="button quiet" id="query-circuit">Query this graph ↗</button>${tab!=='metadata'?'<button class="button details-toggle" id="toggle-details" aria-expanded="false" aria-controls="detail-sidebar">Details</button>':''}</div></div><div class="tabs" role="tablist">${['graph','schematic','netlist','metadata'].map(t=>`<button role="tab" aria-selected="${t===tab}" class="${t===tab?'active':''}" data-tab="${t}">${t[0].toUpperCase()+t.slice(1)}</button>`).join('')}</div><div id="detail-body"></div>`;
     $('#back-library').onclick=()=>{location.hash='#library';};$$('[data-tab]').forEach(b=>b.onclick=()=>openCircuit(id,b.dataset.tab));
     $('#find-similar').onclick=()=>{queryState.mode='similarity';queryState.reference=id;queryState.text='';lastResult=null;persistQuery();location.hash='#query';};
+    $('#generate-schematic').onclick=()=>{location.hash='#studio/'+enc(id);};
     $('#query-circuit').onclick=()=>{queryState.mode='cypher';queryState.query=`MATCH (c:Circuit {id: $id})-[:HAS_DEVICE]->(d)\nMATCH (d)-[r:CONNECTED_TO]->(n:Net)\nRETURN d, r, n\nLIMIT 200`;queryState.parameters=JSON.stringify({id},null,2);lastResult=null;persistQuery();location.hash='#query';};
     if(tab==='metadata')renderMetadata(c);else{
       $('#detail-body').innerHTML=`<div class="inspector-grid"><section class="panel" id="detail-panel"></section>${factsHTML(c)}</div>`;
@@ -196,10 +200,16 @@ function renderMetadata(c){
 
 async function renderQuery(){
   closeViewer();network?.destroy();network=null;
-  main.innerHTML=`<section class="intro"><div><div class="eyebrow">The query workbench</div><h1>Follow the connections.</h1><p>Ask a precise structural question, or retrieve candidates by meaning and topology.</p></div><span class="pill olive">READ-ONLY CYPHER</span></section><div class="query-layout"><div><section class="panel query-panel"><div class="mode-tabs"><button class="button ${queryState.mode==='cypher'?'selected':''}" id="mode-cypher">Cypher</button><button class="button ${queryState.mode==='similarity'?'selected':''}" id="mode-similarity">Similarity search</button></div><div id="query-form"></div></section><div id="query-result" class="query-result"></div></div><aside class="query-aside"><section class="panel facts"><h3 id="aside-title">Start with a question</h3><div id="query-examples"></div><div class="facts-block"><h3>Graph schema</h3><pre class="schema-block">(Circuit)─HAS_DEVICE→(Device)\n         ├HAS_NET───→(Net)\n         └HAS_PORT──→(Port)\n\n(Device)─CONNECTED_TO→(Net)\n  terminal, terminal_ordinal\n\n(Port)───MAPS_TO────→(Net)</pre><p class="help">Use c.id, d.canonical_type, d.source_instance and n.name. Annotations live on Circuit properties. Return nodes or paths to see a graph.</p></div><div class="facts-block"><h3>Recent runs</h3><div id="query-history"><span class="help">No queries yet.</span></div></div></section></aside></div>`;
+  main.innerHTML=`<section class="intro"><div><div class="eyebrow">The query workbench</div><h1>Follow the connections.</h1><p>Ask a precise structural question, or retrieve candidates by meaning and topology.</p></div><span class="pill olive">READ-ONLY CYPHER</span></section><div class="query-layout"><div><section class="panel query-panel"><div class="mode-tabs"><button class="button ${queryState.mode==='cypher'?'selected':''}" id="mode-cypher">Cypher</button><button class="button ${queryState.mode==='similarity'?'selected':''}" id="mode-similarity">Natural language</button></div><div id="query-form"></div></section><div id="query-result" class="query-result"></div></div><aside class="query-aside"><section class="panel facts"><h3 id="aside-title">Start with a question</h3><div id="query-examples"></div><div class="facts-block"><h3>Graph schema</h3><pre class="schema-block">(Circuit)─HAS_DEVICE→(Device)\n         ├HAS_NET───→(Net)\n         └HAS_PORT──→(Port)\n\n(Device)─CONNECTED_TO→(Net)\n  terminal, terminal_ordinal\n\n(Port)───MAPS_TO────→(Net)</pre><p class="help">Use c.id, d.canonical_type, d.source_instance and n.name. Annotations live on Circuit properties. Return nodes or paths to see a graph.</p></div><div class="facts-block"><h3>Recent runs</h3><div id="query-history"><span class="help">No queries yet.</span></div></div></section></aside></div>`;
   for(const mode of ['cypher','similarity'])$(`#mode-${mode}`).onclick=()=>{saveDraft();queryState.mode=mode;persistQuery();lastResult=null;renderQuery();};
-  if(queryState.mode==='cypher')renderCypherForm();else renderSimilarityForm();
+  if(queryState.mode==='cypher')renderCypherForm();else renderNaturalForm();
   renderExamples();refreshHistory();if(lastResult)renderResult(lastResult);
+}
+function renderNaturalForm(){
+  mountNatural($('#query-form'),{state:queryState,persist:persistQuery,api,
+    onResult:(data,visible)=>{lastResult={mode:'natural',data};if(visible&&queryState.mode==='similarity'){renderResult(lastResult);refreshHistory();}},
+    onReferenceOnly:async payload=>{try{const data=await api('/api/search',{method:'POST',body:JSON.stringify({text:'',reference_id:payload.reference_id,limit:payload.limit})});lastResult={mode:'similarity',data};if(queryState.mode==='similarity'&&$('#natural-prompt')){renderResult(lastResult);refreshHistory();}}catch(error){if($('#query-error'))$('#query-error').innerHTML=errorHTML(error.message);}}
+  });
 }
 function saveDraft(){if($('#cypher-editor')){queryState.query=$('#cypher-editor').value;queryState.parameters=$('#query-parameters').value;}if($('#similarity-text')){queryState.text=$('#similarity-text').value;queryState.reference=referenceId($('#reference-circuit').value);}persistQuery();}
 function renderCypherForm(){
@@ -214,7 +224,7 @@ function renderSimilarityForm(){
 }
 function renderExamples(){
   if(queryState.mode==='cypher'){$('#query-examples').innerHTML=examples.map((x,i)=>`<button class="example" data-example="${i}">${esc(x.name)}<span>${esc(x.note)}</span></button>`).join('');$$('[data-example]').forEach(b=>b.onclick=()=>{queryState.query=examples[Number(b.dataset.example)].query;queryState.parameters='{}';persistQuery();renderCypherForm();});}
-  else{$('#query-examples').innerHTML=[['Low-power dynamic comparator','Retrieve by citation and description'],['Bandgap voltage reference','Search source semantics'],['Similar to circuit 1004','Compare the terminal-aware graph']].map((x,i)=>`<button class="example" data-search-example="${i}">${x[0]}<span>${x[1]}</span></button>`).join('');$$('[data-search-example]').forEach(b=>b.onclick=()=>{const i=Number(b.dataset.searchExample);queryState.text=i===0?'Low-power dynamic double-tail comparator':i===1?'Bandgap voltage reference':'';queryState.reference=i===2?'analoggenie:1004':'';persistQuery();renderSimilarityForm();});}
+  else{const prompts=[['NMOS mirror','Diode-connected reference; shared gate and source','Find NMOS current mirrors with a diode-connected reference branch and fewer than 12 transistors.'],['Differential amplifier','Structural candidates, not certified stage count','Find differential amplifier candidates with at least one capacitor and fewer than 20 transistors.'],['Comparator','Try both retrieval strategies','Find comparator candidates with more than 8 transistors and no inductors.']];$('#query-examples').innerHTML=prompts.map((x,i)=>`<button class="example" data-search-example="${i}">${x[0]}<span>${x[1]}</span></button>`).join('');$$('[data-search-example]').forEach(b=>b.onclick=()=>{queryState.text=prompts[Number(b.dataset.searchExample)][2];queryState.reference='';persistQuery();renderNaturalForm();});}
 }
 async function runQuery(){
   saveDraft();$('#query-error').innerHTML='';$('#reference-suggestions')?.classList.add('hidden');const button=$('#run-query');if(button.disabled)return;button.disabled=true;button.innerHTML='<span class="spinner"></span> Running…';const mode=queryState.mode;
@@ -226,6 +236,10 @@ function renderResult(result){
   const {mode,data}=result;if(!$('#query-result'))return;
   // Restore an expanded old panel before its position marker is replaced.
   closeViewer();network?.destroy();network=null;
+  if(mode==='natural'){
+    $('#query-result').innerHTML=naturalResultHTML(data);
+    $$('[data-result-id]').forEach(x=>{x.onclick=e=>{if(!e.target.closest('details'))openCircuit(x.dataset.resultId);};x.onkeydown=e=>{if(e.key==='Enter'&&e.target===x)openCircuit(x.dataset.resultId);};});return;
+  }
   if(mode==='similarity'){
     $('#query-result').innerHTML=`<div class="result-heading"><h2>${data.items.length} candidates</h2><span class="muted">${data.mode} retrieval · ${fmt(data.total)} compared</span></div><div class="panel">${data.items.length?data.items.map((c,i)=>`<article class="search-card" data-result-id="${esc(c.id)}" tabindex="0" aria-label="Inspect ${esc(c.title)}"><div class="rank">${String(i+1).padStart(2,'0')}</div><div><h3>${esc(c.title)} <span class="muted mono" style="font-size:10px;margin-left:8px">${esc(c.id)}</span></h3><p>${esc(c.description||c.evidence.join(' · '))}</p><div class="type-profile">${profile(c.statistics)}</div></div><div class="scores">${c.semantic_score!==null?`<div>${c.semantic_score.toFixed(3)}<span>SEMANTIC COSINE</span></div>`:''}${c.structural_score!=null?`<div>${c.structural_score.toFixed(3)}<span>FULL-PATTERN SCORE</span></div>`:''}${c.topology_score!==null?`<div>${c.topology_score.toFixed(3)}<span>TOPOLOGY COSINE</span></div>`:''}</div></article>`).join(''):empty('No candidates','Change the description or reference circuit.')}</div><p class="result-note">${esc(data.warning)}${data.reranked?` Top ${data.reranked} topology candidates rescored using full structural patterns.`:''}${data.mode==='hybrid'?' Results combine independent ranks using reciprocal rank fusion.':''}</p><details class="query-options"><summary>Structured search request · JSON</summary><pre class="schema-block">${esc(JSON.stringify(data.request,null,2))}</pre></details>`;
     $$('[data-result-id]').forEach(x=>{x.onclick=()=>openCircuit(x.dataset.resultId);x.onkeydown=e=>{if(e.key==='Enter')openCircuit(x.dataset.resultId);};});
@@ -237,7 +251,7 @@ function renderResult(result){
     if(data.graph.truncated)$('#query-result .result-note').textContent+=' Graph display capped at 1,200 nodes / 3,000 relationships; narrow the query to inspect the complete result.';
   }
 }
-async function refreshHistory(){try{const history=await api('/api/history');if(!$('#query-history'))return;$('#query-history').innerHTML=history.length?history.slice(0,6).map((h,i)=>`<button class="history-item" data-history="${i}" title="${esc(h.query)}">${esc(h.kind==='cypher'?h.query.split('\n')[0]:h.query)}</button>`).join(''):'<span class="help">Your successful runs appear here.</span>';$$('[data-history]').forEach(b=>b.onclick=()=>{const h=history[Number(b.dataset.history)];if(h.kind==='cypher'){queryState.mode='cypher';queryState.query=h.query;queryState.parameters=h.parameters;}else{const p=JSON.parse(h.parameters);queryState.mode='similarity';queryState.text=p.text;queryState.reference=p.reference_id;}lastResult=null;persistQuery();renderQuery();});}catch{}}
+async function refreshHistory(){try{const history=await api('/api/history');if(!$('#query-history'))return;$('#query-history').innerHTML=history.length?history.slice(0,6).map((h,i)=>`<button class="history-item" data-history="${i}" title="${esc(h.query)}">${esc(h.kind==='cypher'?h.query.split('\n')[0]:h.query)}</button>`).join(''):'<span class="help">Your successful runs appear here.</span>';$$('[data-history]').forEach(b=>b.onclick=()=>{const h=history[Number(b.dataset.history)];if(h.kind==='cypher'){queryState.mode='cypher';queryState.query=h.query;queryState.parameters=h.parameters;}else{const p=JSON.parse(h.parameters);queryState.mode='similarity';queryState.text=p.text||'';queryState.reference=p.reference_id||'';if(h.kind==='natural'){queryState.strategy=p.strategy;queryState.provider=p.provider;queryState.model=p.model;queryState.limit=p.limit;}}lastResult=null;persistQuery();renderQuery();});}catch{}}
 
 let uploadImage='',validatedUpload='';
 function openUpload(){
@@ -258,10 +272,11 @@ async function route(){
   if(restoringHash){restoringHash=false;return;}
   if(dirty){if(!confirm('You have unsaved annotations. Discard them and leave this circuit?')){restoringHash=true;location.hash=lastHash;return;}dirty=false;}
   closeViewer();saveDraft();lastHash=location.hash;const version=++routeVersion;++libraryVersion;++graphVersion;network?.destroy();network=null;graphData=null;
-  const parts=location.hash.replace(/^#/,'').split('/');const page=parts[0]||'library';$('#nav-library').classList.toggle('active',page!=='query');$('#nav-query').classList.toggle('active',page==='query');
+  const parts=location.hash.replace(/^#/,'').split('/');const page=parts[0]||'library';$('#nav-library').classList.toggle('active',!['query','studio'].includes(page));$('#nav-query').classList.toggle('active',page==='query');$('#nav-studio').classList.toggle('active',page==='studio');
+  main.classList.toggle('studio-page',page==='studio');
   main.classList.toggle('inspector-page',page==='circuit');
   document.body.classList.toggle('details-page',page==='circuit');
-  if(page==='circuit')await renderDetail(decodeURIComponent(parts[1]||''),['graph','schematic','netlist','metadata'].includes(parts[2])?parts[2]:'graph',version);else if(page==='query')await renderQuery();else await renderLibrary();
+  if(page==='circuit')await renderDetail(decodeURIComponent(parts[1]||''),['graph','schematic','netlist','metadata'].includes(parts[2])?parts[2]:'graph',version);else if(page==='query')await renderQuery();else if(page==='studio')await mountStudio(main,{api,initialSource:parts[1]==='artifact'?'':decodeURIComponent(parts[1]||''),initialArtifact:parts[1]==='artifact'?decodeURIComponent(parts[2]||''):'',bindExpansion,toast});else await renderLibrary();
   window.scrollTo(0,0);
 }
 window.addEventListener('hashchange',route);window.addEventListener('beforeunload',e=>{if(dirty){e.preventDefault();e.returnValue='';}});

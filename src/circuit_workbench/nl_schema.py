@@ -31,12 +31,18 @@ class PortBinding(Contract):
     name: Annotated[str, Field(min_length=1, max_length=100)]
 
 
+class NetCondition(Contract):
+    net: Alias
+    condition: Literal["not_rail", "external"]
+
+
 class GraphPattern(Contract):
     devices: list[PatternDevice] = Field(min_length=1, max_length=16)
     nets: list[Alias] = Field(min_length=1, max_length=24)
     edges: list[Edge] = Field(min_length=1, max_length=64)
     ports: list[PortBinding] = Field(default_factory=list, max_length=24)
     distinct_nets: list[tuple[Alias, Alias]] = Field(default_factory=list, max_length=64)
+    net_conditions: list[NetCondition] = Field(default_factory=list, max_length=24)
 
     @model_validator(mode="after")
     def consistent(self):
@@ -58,6 +64,8 @@ class GraphPattern(Contract):
             raise ValueError("Port references an undeclared net.")
         if any(a not in self.nets or b not in self.nets or a == b for a, b in self.distinct_nets):
             raise ValueError("Invalid distinct-net condition.")
+        if any(c.net not in self.nets for c in self.net_conditions):
+            raise ValueError("Net condition references an undeclared net.")
         return self
 
 

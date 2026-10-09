@@ -85,6 +85,7 @@ def _geometry(device):
         left=i<half;y=10+20*(i if left else i-half);x=0 if left else 120
         pins[terminal]=(x,y)
         body+=line(f'M {x} {y} H {25 if left else 95}')
+        body+=f'<text x="{29 if left else 91}" y="{y+3}" text-anchor="{"start" if left else "end"}" font-size="6">{escape(terminal)}</text>'
     return body,pins,True
 
 
@@ -233,6 +234,9 @@ def render_schematic(record,layout,name,style='connected'):
         if pin['net_id'] in labelled or (net.is_external and groups[net.id][0] is pin):
             anchor='end' if dx<0 else 'start' if dx>0 else 'middle'
             lx=sx+dx*4;ly=sy+(4 if dx else -5 if dy<0 else 13)
+            if pin['net_id'] not in labelled:
+                anchor='start';lx=sx+12;ly=sy+4
+                wires.append(f'<circle cx="{sx}" cy="{sy}" r="3" fill="#fcfcf8" stroke="#3d4938" stroke-width="1.5"/>')
             label=net.name if len(net.name)<=18 else net.name[:13]+'…N'+str(next(i for i,n in enumerate(record.nets,1) if n.id==net.id))
             wires.append(f'<text x="{lx}" y="{ly}" text-anchor="{anchor}" font-size="10" fill="#4e6344"><title>{escape(net.name)} · {escape(pin["terminal"])}</title>{escape(label)}</text>')
         # Body/substrate labels are always explicit even when physical wiring is drawn.

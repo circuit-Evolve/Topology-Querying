@@ -23,6 +23,8 @@ from .nl_providers import provider_status
 from .nl_search import NaturalSearch
 from .nl_jobs import SearchJobs
 from .nl_core import load_rulebook
+from .studio import Studio,StudioStore,StudioRequest
+from .schematic import LayoutPlan
 
 STATIC = Path(__file__).parent / "static"
 
@@ -62,6 +64,9 @@ def create_app(settings=None, background=True):
     neo = Neo4jService(settings, catalog)
     natural = NaturalSearch(catalog, neo, retrieval)
     jobs = SearchJobs(natural.run)
+    studio_store=StudioStore(settings.state/'studio')
+    studio=Studio(catalog,studio_store)
+    studio_jobs=SearchJobs(studio.run,label='schematic generation')
     stopped = threading.Event()
 
     def worker():
@@ -85,11 +90,13 @@ def create_app(settings=None, background=True):
         yield
         stopped.set()
         jobs.stop()
+        studio_jobs.stop()
         neo.driver.close()
 
     app = FastAPI(title="Circuit Atlas", lifespan=lifespan)
     app.state.catalog, app.state.retrieval, app.state.neo4j = catalog, retrieval, neo
     app.state.natural, app.state.search_jobs = natural, jobs
+    app.state.studio,app.state.studio_jobs=studio,studio_jobs
     app.add_middleware(TrustedHostMiddleware, allowed_hosts=["127.0.0.1", "localhost", "testserver"])
 
     @app.middleware("http")
@@ -136,6 +143,40 @@ def create_app(settings=None, background=True):
     @app.get("/api/natural/rulebook")
     def rulebook():
         return load_rulebook()
+
+    @app.post('/api/studio/jobs')
+    def start_studio(request:StudioRequest):
+        return studio_jobs.start(request.model_dump())
+
+    @app.post('/api/studio/render')
+    def render_without_model(request:StudioRequest):
+        if request.mode=='prompt' or request.polish:
+            raise ValueError('Use cancellable jobs for model-assisted generation.')
+        return studio.run(request.model_dump(),threading.Event(),lambda stage:None)
+
+    @app.get('/api/studio/jobs/{identifier}')
+    def studio_job(identifier:str):
+        return studio_jobs.get(identifier)
+
+    @app.delete('/api/studio/jobs/{identifier}')
+    def cancel_studio_job(identifier:str):
+        return studio_jobs.cancel(identifier)
+
+    @app.get('/api/studio/artifacts')
+    def studio_artifacts():
+        return studio_store.list()
+
+    @app.get('/api/studio/artifacts/{identifier}')
+    def studio_artifact(identifier:str):
+        return studio_store.get(identifier)
+
+    @app.get('/api/studio/artifacts/{identifier}/svg')
+    def studio_svg(identifier:str):
+        return PlainTextResponse(studio_store.get(identifier)['svg'],media_type='image/svg+xml',headers={'Content-Security-Policy':"default-src 'none'; style-src 'unsafe-inline'; sandbox",'Content-Disposition':f'inline; filename="schematic-{identifier}.svg"'})
+
+    @app.post('/api/studio/artifacts/{identifier}/layout')
+    def studio_layout(identifier:str,request:LayoutPlan):
+        return studio.relayout(identifier,request)
 
     @app.post("/api/natural/jobs")
     def start_search(request: NaturalRequest):

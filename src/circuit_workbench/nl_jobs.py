@@ -7,14 +7,15 @@ import uuid
 
 
 class SearchJobs:
-    def __init__(self, execute):
+    def __init__(self, execute, label='natural-language search'):
         self.execute, self.lock = execute, threading.RLock()
+        self.label=label
         self.jobs = OrderedDict()
 
     def start(self, request):
         with self.lock:
             if any(j["state"] in {"running", "queued"} for j in self.jobs.values()):
-                raise ValueError("A natural-language search is already running. Cancel it first.")
+                raise ValueError(f"A {self.label} is already running. Cancel it first.")
             while len(self.jobs) >= 20:
                 self.jobs.popitem(last=False)
             identifier = str(uuid.uuid4())

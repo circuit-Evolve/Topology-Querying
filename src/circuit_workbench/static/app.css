@@ -5,6 +5,56 @@
 @media(max-width:760px){.topbar{height:auto;min-height:75px;padding:17px 18px;flex-wrap:wrap;gap:14px}.brand{min-width:0;flex:1}.brand span{font-size:20px}.top-actions{gap:0}nav{height:34px;order:3;width:100%;gap:25px}nav a{font-size:12px;padding:10px 0}main{padding:25px 18px}.intro{align-items:flex-start;flex-direction:column;gap:23px;margin-bottom:25px}h1{font-size:36px}.library-stats{width:100%;gap:22px}.library-stats div{padding-left:18px}.library-stats div:first-child{border:0;padding:0}.library-stats strong{font-size:23px}.filterbar{padding:14px}.filterbar .search-field{flex-basis:100%}.filterbar select{flex:1;max-width:none}.library-table th,.library-table td{padding:15px 14px}.library-table th:nth-child(3),.library-table td:nth-child(3),.library-table th:nth-child(4),.library-table td:nth-child(4),.library-table th:nth-child(5),.library-table td:nth-child(5){display:none}.type-profile{max-width:170px}.circuit-cell{min-width:135px;gap:9px}.circuit-glyph{display:none}.circuit-id{max-width:130px;overflow:hidden;text-overflow:ellipsis}.pagination{padding:13px;font-size:10px}.pagination-controls{gap:8px}.detail-heading{align-items:flex-start;flex-direction:column}.detail-heading h1{font-size:32px}.detail-actions{flex-wrap:wrap}.inspector-grid,.metadata-layout,.query-layout{grid-template-columns:1fr}.inspector-sidebar{order:2}.tabs{gap:22px}.graph-wrap{height:440px}.graph-footer{font-size:9px}.legend{gap:10px}.panel-heading{padding:14px}.facts{padding:18px}.query-aside{display:none}.form-panel{padding:18px}.form-grid{gap:13px}.field{font-size:10px}.query-panel{padding:17px}.query-editor{font-size:11px;min-height:250px}.query-actions{align-items:flex-end}.query-actions .help{max-width:160px}.similarity-options{grid-template-columns:1fr 80px}.search-card{padding:16px 13px;grid-template-columns:24px minmax(0,1fr);gap:10px}.search-card .scores{grid-column:2;display:flex;gap:25px;text-align:left}.app-footer{padding:15px 18px;gap:10px;align-items:flex-start}.app-footer>span{font-size:8px;max-width:120px}.status-button{font-size:10px;text-align:right}.dialog-body{padding:18px}.dialog-header{padding:20px 18px}.upload-file{flex-direction:column;align-items:flex-start}.upload-file input{width:100%}.code-block{font-size:10px;padding:16px}.form-actions{flex-wrap:wrap}.schematic-wrap{min-height:320px;padding:15px}.results-table td{max-width:220px}.graph-tools{right:8px}.info-strip{font-size:10px}.mobile-only{display:block}}
 @media(prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
 
+.natural-strategies{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:16px 0}
+.strategy{border:1px solid var(--line);border-radius:5px;background:var(--bg);padding:14px;text-align:left;color:var(--ink)}
+.strategy.selected{border-color:var(--accent);background:var(--raised)}
+.strategy strong{display:block;font-weight:500;font-size:13px;margin-bottom:4px}
+.strategy>span{display:block;font-size:10px;color:var(--muted)}
+.strategy .pill{font-size:7px;margin-left:4px}
+.natural-settings{display:grid;grid-template-columns:1.1fr 1fr 70px;gap:12px}
+.natural-settings label{font-size:10px;color:var(--muted)}
+.natural-settings input,.natural-settings select{display:block;width:100%;margin-top:6px}
+.natural-actions{display:flex;gap:8px;flex-shrink:0}
+.natural-summary{padding:18px 22px;margin-bottom:14px}
+.natural-summary h3{margin:0;font-weight:500}
+.natural-summary p{font-size:11px;color:var(--muted)}
+.natural-id{font-size:10px;margin-left:6px}
+.match-evidence{font-size:11px;margin-top:8px;color:var(--muted);cursor:auto}
+.match-evidence summary{cursor:pointer;color:var(--accent)}
+.match-evidence pre{font:10px var(--mono);overflow:auto;max-width:100%}
+.unverified{font-size:11px;color:var(--accent);border-left:2px solid var(--accent);padding:8px 12px;margin-top:12px}
+@media(max-width:760px){.natural-strategies{grid-template-columns:1fr}.natural-settings{grid-template-columns:1fr 1fr}.natural-settings label:last-child{grid-column:2}.natural-actions{flex-wrap:wrap}.natural-form .query-actions{align-items:center;gap:10px}}
+
+/* Schematic studio keeps the drawing prominent without stretching the page. */
+main.studio-page{max-width:1800px;padding-top:22px;padding-bottom:24px}
+.studio-intro{margin-bottom:20px}.studio-intro h1{font-size:34px;margin:0 0 8px}.studio-intro p{font-size:12px}
+.studio-layout{display:grid;grid-template-columns:310px minmax(0,1fr);gap:20px;align-items:start}
+.studio-form{padding:18px;max-height:calc(100vh - 305px);min-height:460px;overflow:auto}
+.studio-form label:not(.studio-check){display:block;font-size:10px;color:var(--muted);margin:12px 0 6px}
+.studio-form input:not([type=checkbox]),.studio-form select,.studio-form textarea{width:100%}
+.studio-form textarea{min-height:120px;resize:vertical;font-size:12px}
+.studio-form .help{font-size:10px;margin:8px 0}.studio-check{display:flex;gap:8px;align-items:center;font-size:11px;margin:16px 0}
+.studio-mode-tabs{display:flex;gap:7px}.studio-mode-tabs .button{flex:1;padding:8px 6px}
+.studio-mode-tabs .selected{border-color:var(--accent);background:var(--raised)}
+.studio-run{display:flex;justify-content:flex-end;gap:8px;margin-top:16px}
+.studio-preview{min-width:0;height:calc(100vh - 305px);min-height:460px;display:flex;flex-direction:column;overflow:hidden}
+.studio-preview>.panel-heading{flex-shrink:0;padding:15px 18px}.studio-preview .viewer-heading h3{font-size:14px;margin:0 0 3px}
+.studio-toolbar{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:8px 14px;border-top:1px solid var(--line);border-bottom:1px solid var(--line);flex-shrink:0}
+.studio-exports{display:flex;gap:5px}.studio-toolbar .button{font-size:10px;padding:7px 9px}
+.studio-toolbar output{min-width:37px;font:10px var(--mono);text-align:center;color:var(--muted)}
+.studio-viewport{flex:1;min-height:0;overflow:auto;background:#e7e9df;cursor:grab;position:relative;display:grid;place-items:start center;padding:20px}
+.studio-viewport.dragging{cursor:grabbing}.studio-viewport img{max-width:none;user-select:none;display:block;box-shadow:0 8px 28px #0002;border:1px solid #d3d8c9}
+.studio-preview-footer{padding:10px 14px;display:flex;gap:10px;align-items:center;justify-content:space-between;flex-shrink:0;border-top:1px solid var(--line)}
+.studio-preview-footer .pill{font-size:8px}.studio-preview-footer .help{font-size:9px}
+.studio-empty{margin:auto;text-align:center;color:var(--muted);padding:25px}.studio-empty h2{font:25px var(--serif);color:var(--ink);font-weight:400}.studio-empty p{font-size:12px;line-height:1.8}.studio-empty-glyph{font-size:75px;color:var(--accent);font-weight:200}
+.studio-evidence{margin-top:12px;padding:12px 18px;font-size:12px}.studio-evidence>summary{cursor:pointer;color:var(--accent);font-size:11px}.studio-evidence .schema-block{max-height:280px;overflow:auto}
+.studio-form .studio-evidence{padding:12px 0;border:0;border-top:1px solid var(--line);border-radius:0;font-size:11px}.studio-form .studio-evidence h3{font-size:12px}
+.studio-form .query-options textarea{max-height:230px;min-height:150px;font:10px var(--mono)}
+.viewer-dialog .studio-preview{height:calc(100vh - 58px);min-height:0;max-height:none;width:100%;border:0}
+.library-table .draw-cell{width:100px;text-align:right;white-space:nowrap}
+@media(max-width:1100px){.topbar{gap:20px}nav{gap:22px}.studio-layout{grid-template-columns:285px minmax(0,1fr);gap:14px}.studio-toolbar{flex-wrap:wrap}.studio-preview-footer{flex-wrap:wrap}}
+@media(max-width:760px){.studio-layout{grid-template-columns:1fr}.studio-form{max-height:none;min-height:0}.studio-preview{height:550px;min-height:400px}.studio-intro h1{font-size:29px}.studio-preview-footer{gap:7px}.library-table td.draw-cell{display:table-cell;padding:12px 8px}.library-table td.draw-cell .button{font-size:9px;padding:6px 8px}.topbar nav{gap:18px}.studio-evidence{padding:12px}}
+
 /* Circuit inspection takes priority over the secondary facts column. */
 main.inspector-page{max-width:1800px}
 .inspector-grid{grid-template-columns:minmax(0,1fr) 220px;gap:18px}

@@ -14,6 +14,7 @@ No custom training, hosted LLM, API key or AnalogGenie model checkpoint is neede
 | --- | --- |
 | Install and launch on a new machine | [Setup guide](docs/setup.md) |
 | Understand the screens, queries and retrieval | [Workbench guide](docs/workbench.md) |
+| Redraw a circuit or propose a schematic from words | [Schematic studio](docs/studio.md) |
 | Contribute code, pull updates or push a branch | [Co-developer guide](CONTRIBUTING.md) |
 | Use the parser, graph exports and legacy CLI tools | [Parser and graph tools](docs/parser-and-graph-tools.md) |
 
@@ -64,7 +65,9 @@ progress is printed in the terminal. Re-running setup resumes completed work.
 | Graphs | NetworkX graph and live Neo4j graph, terminal connections, device inspector, zoom/Fit/expand and JSON exports |
 | Structural queries | Read-only Cypher `MATCH`/`WHERE`, aggregation, paths and read subqueries |
 | Vector queries | Explicit Neo4j vector `SEARCH` over synchronized text/topology vectors |
-| Similarity | Reference-only structural retrieval; optional text-only and hybrid modes |
+| Natural-language search | Validated JSON → compiled structural Cypher; optional temporary-prototype graph retrieval |
+| Similarity | Optional reference circuit; reference-only retrieval bypasses the LLM |
+| Schematic studio | Library redraw, prompt-only circuit drafts, optional placement polish, saved artifacts and SVG/PNG/JSON/netlist exports |
 | Uploads | Validate and save supported flat netlists with a required description; optional ports, annotations and image |
 | Annotations | Manual researcher edits, revision history and index/sync refresh |
 | Query workflow | JSON parameters, successful-query history, table/graph views and result downloads |
@@ -79,17 +82,16 @@ the local library/NetworkX inspection can remain available if it goes offline.
 | --- | --- | --- |
 | Library lookup | Literal substring over circuit IDs, annotations and source-reference text | No embeddings |
 | Reference similarity | Select a circuit; compare its wiring-derived descriptor with other circuits | No descriptions needed; similarity is not functional equivalence |
-| Text similarity | Embed a description and compare with saved circuit text vectors | Weak when descriptions are missing; does not enforce device/spec constraints |
-| Hybrid similarity | Combine independent text and structural rankings | Optional; sparse text can make results worse |
-| Cypher | Run exactly the query you supply | No automatic English-to-Cypher conversion or hidden hybrid reranking |
+| Query patterns | Model interprets counts/connections into validated JSON; code compiles read-only Cypher | Explicit requirements are hard; inferred function patterns are hypotheses |
+| Generated prototypes · experimental | Model generates 4–5 temporary netlists; eligible real circuits are ranked with the same graph fingerprint/full profiles | Anchors are neither inserted nor simulated; generated structure can be wrong |
+| Hybrid evidence | Structure first, with available meaningful text and optional reference ranking | Text never overrides hard constraints; missing descriptions need not block structural search |
+| Cypher | Run exactly the query you supply | No hidden English conversion or reranking inside the expert console |
 
-For circuits with little semantic information, start with **reference-only
-similarity or explicit structural Cypher**.
-
-Typing “two outputs and at least one capacitor” in text similarity does **not**
-enforce those conditions. Use a Cypher query that explicitly expresses the
-conditions. An external LLM can help write that query if supplied with our
-schema and examples; it must not invent properties or numeric embeddings.
+For circuits with little semantic information, start with **query-pattern mode**
+or explicit structural Cypher. Named function retrieval remains uncertain.
+Counts such as “at least one capacitor” are translated to hard filters;
+“two outputs” depends on whether output identity is actually known, not merely
+whether two declared ports exist. Inspect the displayed JSON plan and evidence.
 
 The topology descriptor is a deterministic, terminal-aware **768-dimensional
 fingerprint**, using device counts, heuristic port roles, wiring motifs and
@@ -98,6 +100,60 @@ using uncompressed structural features. Text uses local BGE-small, 384 dimension
 Hybrid uses rank fusion. Native vector Cypher uses the stored fingerprint but
 does **not** automatically apply the UI's Python reranker.
 See [retrieval details](docs/workbench.md#how-retrieval-actually-works).
+
+### Natural-language converters
+
+Open **Query workbench → Natural language**, enter a request, choose a strategy
+and converter, then **Search circuits**. Expand the plan, compiled Cypher or
+prototype netlists to inspect what the search used. Click a candidate to see its
+original schematic, netlist and graphs. Cancel stops this app's owned conversion;
+successful requests are saved in history. A blank prompt with a selected reference
+uses the original direct topology search without calling a model.
+
+- **Codex CLI:** install/sign in separately (`codex login`); current CLI must support
+  structured output, `--ignore-user-config` and ephemeral/read-only execution.
+- **Ollama:** start it and install a suitable structured-output model separately.
+  Choose an installed model in the UI. No model is automatically downloaded.
+- **Claude Code:** install/sign in separately (`claude auth login`); requires print
+  mode/schema output and tool/MCP/hook isolation flags. Managed policies that can
+  force hooks are rejected. This adapter needs live verification on your machine.
+
+Both strategies work through the same provider interface. CLI model is optional
+(provider default); Ollama model is required. CLI authentication remains owned by
+the CLI, never pasted into Circuit Atlas. Codex/Claude send the prompt/schema to
+their provider and use normal account allowances; Ollama stays on loopback.
+No automatic local-to-cloud fallback occurs. CLI availability is not a guarantee
+of valid login or model access: a failed conversion is reported without querying.
+
+All converters share [the machine-readable electrical rulebook](src/circuit_workbench/search-rulebook.json):
+14 physical device contracts, 17 low-level primitives and 30 higher-level family
+guides, including clocked comparators, StrongARM/double-tail latches, op-amps,
+mirrors, references, filters and oscillators. Each guide distinguishes supporting
+wiring from false positives and unverified specifications. Common motifs can be
+selected by rule ID, so the model need not invent their terminal connections.
+The runtime serves the same rulebook at `/api/natural/rulebook`.
+
+The deterministic core independently parses common literal device-count phrases,
+preserves strict/inclusive comparisons and rejects contradictions/placeholders.
+It distinguishes an overall circuit from required embedded blocks: “op-amp
+containing a mirror” keeps op-amp interpretations and checks mirror containment
+within that same circuit. Unknown terms/custom patterns remain supported through
+the validated model plan; this is not a closed circuit-family menu. Smaller models
+are not guaranteed frontier-level accuracy; identical validated plans do use the
+same query compiler and ranking regardless of provider.
+
+For reproducible live checks, run `PYTHONPATH=src .venv/bin/python
+scripts/verify-natural-search.py --case mirror --strategy prototypes` as one
+terminal command. See [sampled result review](docs/search-evaluation.md).
+
+### Schematic studio
+
+Click **Draw** in the Library or open the third tab. **Library** uses the stored
+netlist without a model. **From words** needs only a circuit description: the
+selected converter proposes a netlist internally, then the app checks and draws
+it. Optional polish changes placement only. Zoom, pan, expand, edit placement JSON
+and export the artifact; **Add draft to library** is an explicit opt-in action.
+Every proposed design is labelled **not simulated**. See [the Studio guide](docs/studio.md).
 
 ## First five minutes
 
@@ -134,7 +190,9 @@ is a narrowly defined **candidate pattern**, not a stage-count classifier.
   Manual annotations are user assertions, not independently verified facts.
 - **No simulation or spec guarantees.** Gain, bandwidth, power, stability and supply
   range cannot be established from similarity scores or device counts.
-- **No natural-language query compiler.** The text box does not generate Cypher.
+- **Model interpretations can be wrong.** Schema validation checks supported syntax,
+  not electronics. Broad structural hypotheses can match incidental subcircuits.
+  Prototype mode can retrieve the wrong function despite high structural scores.
 - **No trained circuit graph encoder or schematic understanding.** Graph vectors
   are engineered fingerprints; schematic images are displayed, not interpreted.
 - **No broad electrical retrieval benchmark.** Regression fixtures and sampled
@@ -144,6 +202,9 @@ is a narrowly defined **candidate pattern**, not a stage-count classifier.
   A valid upload is structurally parseable, not guaranteed electrically valid.
 - **Query limits.** Read-only console, 10-second transaction timeout, default
   200 displayed rows; graph views cap at 1,200 nodes / 3,000 edges.
+  Natural search has a separate 10,000-ID candidate cap with disclosed truncation,
+  one active job and at most 20 retained jobs. Each converter call times out after
+  180 seconds; one schema repair is allowed. Failed prototype graphs are disclosed.
 - **Local V1 only.** No multi-user authentication/permissions or production
   hosting. Keep the app/database on loopback.
 - **Scaling is not yet proven at 10k.** The committed corpus has 3,350 records.

@@ -18,6 +18,7 @@
 - Hard filters precede ranking; internal queries retrieve up to 10,000 IDs with explicit truncation.
 - Provider JSON validated independently; one repair; no automatic model download/cloud fallback.
 - Renderer is follow-on work, not part of this milestone.
+- User-added scope: shared machine-readable electrical rulebook, deterministic count grounding and parent/required-block semantics; schema and tests included in Task 2. Next approved milestone is Schematic studio with modular adapters.
 
 ## Review Focus
 

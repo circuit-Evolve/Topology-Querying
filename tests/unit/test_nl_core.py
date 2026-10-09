@@ -45,8 +45,8 @@ def test_mirror_inside_opamp_is_required_block_not_parent_function():
     from circuit_workbench.nl_schema import SearchPlan
     result=ground_plan("Find an op amp containing a current mirror with fewer than 20 transistors",SearchPlan(requested_function="op amp"))
     assert result.requested_function == "op amp"
-    assert result.required_blocks[0].name == "MOS current mirror"
-    assert len(result.required_blocks[0].alternatives) == 2
+    assert result.required_blocks[0].name == "Current mirror"
+    assert len(result.required_blocks[0].alternatives) == 4
 
 
 def test_full_rulebook_patterns_match_actual_typed_contracts():
@@ -81,3 +81,55 @@ def test_comparator_guidance_prefers_combined_input_and_regeneration_over_lone_p
     p=ground_plan("Find comparator candidates with more than 8 transistors",SearchPlan(hypothesis_rules=["mos_diff_pair"]))
     assert len(p.hypotheses[0].pattern.devices)==4
     assert len(p.hypotheses)<=5
+
+
+def test_curated_differential_pair_does_not_mean_any_two_devices_on_ground():
+    from circuit_workbench.nl_core import ground_plan
+    from circuit_workbench.nl_search import pattern_witness
+    from circuit_workbench.nl_schema import SearchPlan
+    from circuit_workbench.uploads import parse_upload
+    p=ground_plan('Find a differential pair',SearchPlan())
+    r=parse_upload('M1 (a in1 VSS VSS) nmos4\nM2 (b in2 VSS VSS) nmos4','two grounded transistors')
+    assert pattern_witness(r,p.hypotheses[0].pattern) is None
+
+
+def test_aliases_are_whole_terms_not_tia_inside_differential():
+    from circuit_workbench.nl_core import relevant_rules
+    rules=relevant_rules('differential amplifier with current mirrors')
+    assert not any(f['id']=='tia' for f in rules['families'])
+    assert any(f['id']=='current_mirror' for f in rules['families'])
+
+
+def test_or_in_unverified_preferences_is_not_a_count_disjunction():
+    from circuit_workbench.nl_core import parse_counts
+    counts,questions=parse_counts('OTA with exactly 5 transistors. Do not claim gain or stability.')
+    assert len(counts)==1 and not questions
+    assert parse_counts('either 5 transistors or 2 capacitors')[1]
+
+
+def test_model_cannot_assume_missing_family_annotations_are_hard_requirements():
+    from circuit_workbench.nl_core import ground_plan
+    from circuit_workbench.nl_schema import SearchPlan
+    p=ground_plan('Find an op amp with fewer than 20 transistors',SearchPlan(property_constraints=[{'field':'family','value':'opamp'}]))
+    assert not p.property_constraints
+    assert p.unverified_requirements
+    p=ground_plan('Find circuits explicitly annotated as opamp',SearchPlan(property_constraints=[{'field':'family','value':'opamp'}]))
+    assert p.property_constraints
+
+
+def test_inferred_family_wiring_is_soft_not_a_model_invented_hard_filter():
+    from circuit_workbench.nl_core import ground_plan
+    from circuit_workbench.nl_schema import SearchPlan
+    from tests.unit.test_nl_search import pair
+    p=ground_plan('Find comparator candidates with more than 8 transistors',SearchPlan(required_pattern=pair()))
+    assert p.required_pattern is None
+    assert p.hypotheses
+
+
+def test_explicit_reference_is_grounded_and_example_copied_reference_is_removed():
+    from circuit_workbench.nl_core import ground_plan
+    from circuit_workbench.nl_schema import SearchPlan
+    p=ground_plan('similar to circuit 1004 with fewer than 20 transistors',SearchPlan(reference_id='analoggenie:1009'))
+    assert p.reference_id=='analoggenie:1004'
+    p=ground_plan('find a comparator with more than 8 transistors',SearchPlan(reference_id='analoggenie:1004'))
+    assert not p.reference_id

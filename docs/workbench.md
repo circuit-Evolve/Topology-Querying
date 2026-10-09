@@ -11,11 +11,14 @@ During earlier testing on the author's Mac, one labelled common-source demo
 upload was retained, making that machine's local catalog 3,351 records; this
 demo/local state is not bundled for new users.
 
-The application does not use a hosted LLM, train a model, invent circuit labels,
-infer electrical specifications, or translate natural language into Cypher.
-Metadata enrichment is deferred as requested. Natural-language **similarity
-search** is implemented; it is different from translating structural questions
-into database queries.
+The natural-language feature supports existing Ollama, Codex and Claude CLI
+installations. A shared rulebook and deterministic count core ground the model's
+JSON; application code compiles read-only Cypher. The experimental alternative
+generates temporary circuit graphs for structural retrieval. No circuit model is
+trained, no bulk metadata is enriched, and no electrical specifications are inferred.
+See [current search instructions](../README.md#natural-language-converters) and
+[sampled result review](search-evaluation.md). The expert Cypher console still
+executes only the supplied query, without hidden reranking.
 
 ## Setup and start
 

@@ -8,7 +8,7 @@ from .nl_schema import NaturalRequest, SearchPlan, PrototypeBatch
 from .nl_compiler import compile_query, GROUPS
 from .nl_providers import validated_generate
 from .uploads import parse_upload
-from .topology import topology_profile, topology_vector, structural_similarity, VERSION
+from .topology import topology_profile, topology_vector, structural_similarity, VERSION, port_role
 from .retrieval import cosine, unit
 from .nl_core import ground_plan, relevant_rules, load_rulebook
 
@@ -91,6 +91,7 @@ def pattern_witness(record, pattern, max_states=20000):
     for d in record.devices:
         by_type.setdefault(d.canonical_type, []).append(d)
     port_nets = {p.name: p.net_id for p in record.ports}
+    net_records={n.id:n for n in record.nets}
     edges = {d.alias: [e for e in pattern.edges if e.device == d.alias] for d in pattern.devices}
     order = sorted(pattern.devices, key=lambda d: (len(by_type.get(d.type, [])), -len(edges[d.alias])))
     initial = {}
@@ -122,16 +123,22 @@ def pattern_witness(record, pattern, max_states=20000):
                 next_bindings[edge.net] = actual
             if not valid or any(a in next_bindings and b in next_bindings and next_bindings[a] == next_bindings[b] for a, b in pattern.distinct_nets):
                 continue
-            found = visit(index+1, used | {device.id}, next_bindings, {**device_map, variable.alias: device.source_instance})
+            if any(c.net in next_bindings and (
+                port_role(net_records[next_bindings[c.net]].name) in {'ground','supply'} if c.condition=='not_rail'
+                else not net_records[next_bindings[c.net]].is_external) for c in pattern.net_conditions):
+                continue
+            found = visit(index+1, used | {device.id}, next_bindings, {**device_map, variable.alias: {'name':device.source_instance,'id':device.id,'ordinal':device.ordinal}})
             if found:
                 return found
         return None
     found = visit(0, set(), initial, {})
     if found is None:
         return None
-    devices, bindings = found
+    matched_devices, bindings = found
+    devices={alias:d['name'] for alias,d in matched_devices.items()}
     names = {n.id: n.name for n in record.nets}
-    return {"devices": devices, "nets": {k: names[v] for k, v in bindings.items()},
+    return {"devices": devices, "device_ids":{alias:d['id'] for alias,d in matched_devices.items()},
+            "device_ordinals":{alias:d['ordinal'] for alias,d in matched_devices.items()},"nets": {k: names[v] for k, v in bindings.items()},
             "connections": [f"{devices[e.device]}.{e.terminal} → {names[bindings[e.net]]}" for e in pattern.edges]}
 
 
@@ -171,12 +178,12 @@ def meaningful_context(row):
 
 def coverage_score(matches, required_witness, device_count):
     witnesses = [m["witness"] for m in matches] + ([required_witness] if required_witness else [])
-    return max((len(set(w["devices"].values())) / device_count for w in witnesses), default=0.0)
+    return max((len(set(w.get('device_ids',w['devices']).values())) / device_count for w in witnesses), default=0.0)
 
 
 def ranked_candidates(candidates, strategy):
     if strategy == "patterns":
-        return sorted(candidates, key=lambda c: (not bool(c["matches"] or c["required_witness"]), -c.get("pattern_coverage", 0), -c["score"], c["row"]["id"]))
+        return sorted(candidates, key=lambda c: (not bool(c["matches"] or c["required_witness"]), -c.get('input_evidence',0), -c.get("pattern_coverage", 0), -c["score"], c["row"]["id"]))
     return sorted(candidates, key=lambda c: (c["structural_score"] is None, -(c["structural_score"] or 0), -c["score"], c["row"]["id"]))
 
 
@@ -310,6 +317,12 @@ class NaturalSearch:
         if request.strategy == "patterns":
             for candidate in candidates:
                 candidate["pattern_coverage"] = coverage_score(candidate["matches"], candidate["required_witness"], candidate["record"].statistics.device_count)
+                candidate['input_evidence']=0
+                if re.search(r'\b(?:amplifier|comparator|opamp|ota|op[- ]amp)\b',request.text.lower()):
+                    signals={p.net_id for p in candidate['record'].ports if port_role(p.name)=='input'}
+                    for match in candidate['matches']:
+                        matched_ids=set(match['witness'].get('device_ids',{}).values())
+                        candidate['input_evidence']=max(candidate['input_evidence'],min(2,len({e.net_id for d in candidate['record'].devices if d.id in matched_ids for e in d.connections if e.terminal in {'gate','base'} and e.net_id in signals})))
             ranked = sorted((c for c in candidates if c["pattern_coverage"]), key=lambda c: (-c["pattern_coverage"], c["row"]["id"]))
             for rank, c in enumerate(ranked, 1):
                 c["score"] += 1/(60+rank)
@@ -346,6 +359,7 @@ class NaturalSearch:
                 evidence.append("Existing text/source context only; verify function in the schematic and netlist.")
             items.append({**summary, **{k: candidate[k] for k in ("semantic_score", "topology_score", "structural_score", "reference_score", "score", "matches", "prototype")},
                           "pattern_coverage": candidate.get("pattern_coverage"), "required_blocks": candidate["block_witnesses"],
+                          "input_evidence":candidate.get('input_evidence'),
                           "tier": "prototype candidate" if candidate["prototype"] else "structural candidate" if candidate["matches"] or candidate["required_witness"] else "hard-filter/text candidate", "evidence": evidence})
         result = {"mode": "natural", "strategy": request.strategy, "items": items, "total": len(candidates), "structural_matches": matched,
                   "plan": plan.model_dump(), "queries": queries, "prototypes": prototype_public, "prototype_diagnostics": diagnostics,

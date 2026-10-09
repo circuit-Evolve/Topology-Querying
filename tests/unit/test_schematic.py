@@ -61,3 +61,14 @@ def test_auto_layout_packs_small_groups_without_an_extra_row_per_group():
     r=parse_upload('P1 (a a VDD VDD) pmos4\nP2 (b a VDD VDD) pmos4\nN1 (a in VSS VSS) nmos4\nN2 (b in VSS VSS) nmos4\nR1 (a b) resistor','layout')
     layout=auto_layout(r)
     assert max(p.row for p in layout.placements)==1
+
+
+def test_external_signal_label_does_not_sit_on_its_continuing_vertical_wire():
+    from circuit_workbench.uploads import parse_upload
+    from circuit_workbench.schematic import auto_layout,render_schematic
+    r=parse_upload('M1 (OUT IN VSS VSS) nmos4\nR1 (VDD OUT) resistor r=10k','amplifier','IN OUT VDD VSS')
+    result=render_schematic(r,auto_layout(r),'amplifier')
+    assert 'OUT' not in result['labelled_nets']
+    pin=next(p for p in result['pins'] if p['net_name']=='OUT')
+    root=ET.fromstring(result['svg']);label=next(n for n in root.iter() if n.tag.endswith('text') and ''.join(child.tail or '' for child in n)=='OUT')
+    assert float(label.attrib['x']) != pin['stub'][0]

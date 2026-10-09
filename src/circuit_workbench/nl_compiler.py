@@ -73,6 +73,13 @@ def compile_pattern(pattern, prefix):
     names = list(devices.values())
     where += [f"{a} <> {b}" for i, a in enumerate(names) for b in names[i+1:]]
     where += [f"{nets[a]} <> {nets[b]}" for a, b in pattern.distinct_nets]
+    for i, condition in enumerate(pattern.net_conditions):
+        if condition.condition == "external":
+            where.append(f"{nets[condition.net]}.is_external = true")
+        else:
+            key=f"{prefix}rails{i}"
+            params[key]=["VDD","VCC","VDD!","VCC!","VSS","VEE","GND","0","GND!","VSS!"]
+            where.append(f"NOT toUpper({nets[condition.net]}.name) IN ${key}")
     clause = "MATCH " + ",\n".join(matches)
     if where:
         clause += " WHERE " + " AND ".join(where)
