@@ -106,6 +106,28 @@ def block_intent(aliases,text):
     return positive and not negative and not optional,negative,optional
 
 
+def motif_qualifiers(aliases,text):
+    """Device qualifiers belong to a motif's noun phrase, not the whole query.
+
+    Clause/coordination boundaries prevent another block's technology or polarity
+    from leaking in. Unqualified motifs keep their available alternatives.
+    """
+    kinds=set()
+    for alias in aliases:
+        for match in re.finditer(r'(?<!\w)'+re.escape(alias)+r's?(?!\w)',text,re.I):
+            prefix=re.split(r'[,;.!?]|\b(?:and|with|containing|contains|using|feeding|driving)\b',text[:match.start()],flags=re.I)[-1]
+            mentions=list(re.finditer(r'\b(nmos|pmos|npn|pnp|mosfet|mos|bjt|bipolar)\b',prefix,re.I))
+            if mentions:
+                closest=mentions[-1]
+                # A bounded adjective phrase, not a qualifier several sentences
+                # or unrelated functional blocks away.
+                suffix=prefix[closest.end():]
+                if len(suffix.split())<=4 and not re.search(r'\b(?:mirror|amplifier|stage|load|transistor)\b',suffix,re.I):
+                    kind=closest.group(1).lower()
+                    kinds.add({'mosfet':'mos','bipolar':'bjt'}.get(kind,kind))
+    return kinds
+
+
 def relevant_rules(text):
     book=load_rulebook()
     normalized = text.lower()
@@ -164,18 +186,18 @@ def ground_plan(text, plan):
         # Only explicit primitive requests use fixed queries. A generic comparator
         # needs a combination/context; no single fixed motif certifies its function.
         direct=[p for p in book["primitives"] if p.get("deterministic_seed") and any(alias_matches(a,normalized) for a in p["aliases"])]
-        if any(p["id"]=="mos_mirror" for p in direct) and re.search(r"\b(?:bjt|npn|pnp|bipolar)\b",normalized):
-            direct=[p for p in direct if p["id"]!="mos_mirror"]+[next(p for p in book["primitives"] if p["id"]=="bjt_mirror")]
         parents=[f for f in book["families"] if f["id"]!="current_mirror" and any(alias_matches(a,normalized) for a in f["aliases"])]
         for primitive in direct:
             patterns=primitive.get("patterns",[])
-            generic_mirror=primitive['id']=='mos_mirror' and not re.search(r'\b(?:nmos|pmos|mos|mosfet|bjt|bipolar|npn|pnp)\b',normalized)
-            if generic_mirror:
+            qualifiers=motif_qualifiers(primitive['aliases'],normalized)
+            generic_mirror=primitive['id']=='mos_mirror' and not qualifiers
+            if primitive['id']=='mos_mirror' and (generic_mirror or qualifiers & {'bjt','npn','pnp'}):
                 patterns=patterns+next(p for p in book['primitives'] if p['id']=='bjt_mirror')['patterns']
-            for kind in ("nmos","pmos","npn","pnp"):
-                if re.search(r"\b"+kind+r"\b",normalized):
-                    patterns=[p for p in patterns if any(d["type"]==kind for d in p["devices"])]
-                    break
+            allowed=set()
+            for kind in qualifiers:
+                allowed.update({'mos':{'nmos','pmos'},'bjt':{'npn','pnp'}}.get(kind,{kind}))
+            if allowed:
+                patterns=[p for p in patterns if any(d['type'] in allowed for d in p['devices'])]
             contains,negative,optional=block_intent(primitive['aliases'],normalized)
             if negative:
                 plan.clarification_questions.append('Absence of '+primitive['name']+' cannot be verified by V1 block containment. Use a positive structural request or an explicit read-only Cypher absence query.')
@@ -186,7 +208,8 @@ def ground_plan(text, plan):
                 continue
             if contains:
                 if patterns:
-                    block=RequiredBlock(name='Current mirror' if generic_mirror else primitive["name"],alternatives=[GraphPattern.model_validate(p) for p in patterns[:5]])
+                    mixed_or_bjt_mirror=primitive['id']=='mos_mirror' and (generic_mirror or bool(allowed & {'npn','pnp'}))
+                    block=RequiredBlock(name='Current mirror' if mixed_or_bjt_mirror else primitive["name"],alternatives=[GraphPattern.model_validate(p) for p in patterns[:5]])
                     plan.required_blocks=[b for b in plan.required_blocks if b.source_quote or (b.name!=block.name and not ('mirror' in b.name.lower() and 'mirror' in block.name.lower()))]+[block]
                 # Leave parent-function hypotheses intact: mirror containment is
                 # eligibility evidence, not a replacement for parent function.

@@ -166,3 +166,42 @@ def test_explicit_reference_is_grounded_and_example_copied_reference_is_removed(
     assert p.reference_id=='analoggenie:1004'
     p=ground_plan('find a comparator with more than 8 transistors',SearchPlan(reference_id='analoggenie:1004'))
     assert not p.reference_id
+
+
+@pytest.mark.parametrize('pair_kind,mirror_kind,mirror_first',[
+    ('pmos','nmos',False),('nmos','pmos',False),
+    ('pmos','nmos',True),('nmos','pmos',True),
+    ('pmos','npn',False),('nmos','pnp',True),
+])
+def test_polarity_is_scoped_to_each_requested_motif(pair_kind,mirror_kind,mirror_first):
+    from circuit_workbench.nl_core import ground_plan
+    from circuit_workbench.nl_schema import SearchPlan
+    pieces=[f'a {pair_kind.upper()} differential input pair',f'a {mirror_kind.upper()} current mirror']
+    if mirror_first:pieces.reverse()
+    p=ground_plan('Find amplifier candidates with '+' and '.join(pieces)+'.',SearchPlan())
+    assert not p.clarification_questions
+    pair=next(b for b in p.required_blocks if 'pair' in b.name.lower())
+    mirror=next(b for b in p.required_blocks if 'mirror' in b.name.lower())
+    assert [{d.type for d in a.devices} for a in pair.alternatives]==[{pair_kind}]
+    assert [{d.type for d in a.devices} for a in mirror.alternatives]==[{mirror_kind}]
+    if mirror_kind in {'npn','pnp'}:
+        assert 'mos' not in mirror.name.lower()
+
+
+def test_unqualified_mirror_does_not_inherit_the_input_pairs_polarity():
+    from circuit_workbench.nl_core import ground_plan
+    from circuit_workbench.nl_schema import SearchPlan
+    p=ground_plan('Find an amplifier with a PMOS input pair and a current mirror.',SearchPlan())
+    mirror=next(b for b in p.required_blocks if 'mirror' in b.name.lower())
+    assert {d.type for a in mirror.alternatives for d in a.devices}=={'nmos','pmos','npn','pnp'}
+
+
+def test_opposite_load_polarity_does_not_reject_a_real_input_pair():
+    from circuit_workbench.nl_core import ground_plan
+    from circuit_workbench.nl_schema import SearchPlan
+    from circuit_workbench.nl_search import required_evidence
+    from circuit_workbench.uploads import parse_upload
+    text='Find amplifier candidates with a PMOS input pair and an NMOS current mirror, with at most 12 transistors.'
+    plan=ground_plan(text,SearchPlan())
+    record=parse_upload('M0 (branch INP tail VDD) pmos4\nM1 (first INN tail VDD) pmos4\nM2 (branch branch VSS VSS) nmos4\nM3 (first branch VSS VSS) nmos4\nM4 (OUT first VSS VSS) nmos4\nC0 (OUT first) capacitor','mixed polarity fixture','INP INN OUT VDD VSS tail')
+    assert required_evidence(record,plan)[2]==[]

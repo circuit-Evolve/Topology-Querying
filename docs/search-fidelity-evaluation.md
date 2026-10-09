@@ -138,6 +138,25 @@ All providers still use the same JSON contract/compiler/eligibility/ranking.
 
 ## Remaining boundary
 
+### Follow-up: mixed-polarity requirements · 10 October 2026
+
+The new prompt specifying a PMOS input pair, NMOS mirror load, separate NMOS
+output stage, interstage capacitor and at most 12 transistors initially returned
+zero. Diagnosis showed the model's complete pattern matched circuit 884, but
+the core added an unrelated mandatory NMOS input pair: it selected the first
+polarity mentioned anywhere in the request rather than the input pair's own
+qualifier. This was a false negative, not corpus absence.
+
+Curated motif selection now uses local noun-phrase qualifiers and clause boundaries.
+An unqualified mirror retains its alternatives instead of inheriting another
+block's polarity/technology. Eight regressions cover both MOS polarities, reversed
+motif ordering, mixed MOS/BJT requests and actual source eligibility. They failed
+before the fix and passed afterward. The historical model pattern replay and a
+fresh Codex conversion through the UI both returned **10 matches**, with **884
+first** in the fresh run. No circuit IDs or prompt-specific branches were added
+to runtime code. This bounded qualifier grammar does not claim general language
+understanding or electrical certification.
+
 The fix makes explicit **structural** searching substantially stricter; it does
 not solve all electrical reasoning. A model may propose the wrong complete
 interpretation, an overly narrow pattern may miss a valid variant, a named
