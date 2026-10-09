@@ -7,7 +7,8 @@ import json
 from pathlib import Path
 import re
 from functools import lru_cache
-from .nl_schema import CountConstraint, SearchPlan, Hypothesis, GraphPattern, RequiredBlock, Unverified
+import networkx as nx
+from .nl_schema import CountConstraint, SearchPlan, Hypothesis, GraphPattern, RequiredBlock, Unverified, RECIPROCAL_TYPES
 
 RULEBOOK = Path(__file__).with_name("search-rulebook.json")
 WORDS = {"zero":0,"one":1,"two":2,"three":3,"four":4,"five":5,"six":6,"seven":7,"eight":8,"nine":9,"ten":10}
@@ -133,6 +134,23 @@ def motif_qualifiers(aliases,text):
     return kinds
 
 
+def pair_source_degenerated(aliases,text):
+    """Associate a source-degeneration modifier with the pair, not another stage."""
+    degeneration=re.compile(r'\bsource[- ]degenerat(?:ion|ed|ing)\b',re.I)
+    for clause in re.split(r'[,;.!?]',text):
+        for alias in aliases:
+            for pair in re.finditer(r'(?<!\w)'+re.escape(alias)+r's?(?!\w)',clause,re.I):
+                for deg in degeneration.finditer(clause):
+                    if deg.end()<=pair.start():
+                        between=clause[deg.end():pair.start()]
+                        if len(between.split())<=4 and not re.search(r'\b(?:and|stage|output|mirror|amplifier)\b',between,re.I):return True
+                    elif pair.end()<=deg.start():
+                        between=clause[pair.end():deg.start()]
+                        after=clause[deg.end():]
+                        if not re.search(r'\b(?:stage|output|mirror|amplifier)\b',between,re.I) and not re.match(r'\s+(?:(?:output|gain|common[- ]source)\s+)?stage\b',after,re.I):return True
+    return False
+
+
 def relevant_rules(text):
     book=load_rulebook()
     normalized = text.lower()
@@ -141,6 +159,19 @@ def relevant_rules(text):
     primitives=[p for p in book["primitives"] if p["id"] in ids or any(alias_matches(a,normalized) for a in p["aliases"])]
     return {"version":book["version"],"policy":book["policy"],"device_contracts":book["device_contracts"],
             "families":families,"primitives":primitives,"interpretation_examples":book["interpretation_examples"]}
+
+
+def same_wiring(a,b):
+    """Alias-independent shape equality, not function/electrical equivalence."""
+    if len(a.devices)!=len(b.devices) or len(a.nets)!=len(b.nets) or len(a.edges)!=len(b.edges):return False
+    def graph(p):
+        g=nx.MultiDiGraph()
+        g.add_nodes_from((('d',d.alias),{'kind':d.type}) for d in p.devices)
+        g.add_nodes_from((('n',n),{'kind':'net'}) for n in p.nets)
+        kinds={d.alias:d.type for d in p.devices}
+        for e in p.edges:g.add_edge(('d',e.device),('n',e.net),terminal='passive' if kinds[e.device] in RECIPROCAL_TYPES else e.terminal)
+        return g
+    return nx.is_isomorphic(graph(a),graph(b),node_match=nx.algorithms.isomorphism.categorical_node_match('kind',''),edge_match=nx.algorithms.isomorphism.categorical_multiedge_match('terminal',''))
 
 
 def ground_plan(text, plan):
@@ -175,14 +206,26 @@ def ground_plan(text, plan):
         plan.property_constraints=properties
     # Identical user text yields identical semantic input, irrespective of provider paraphrasing.
     plan.semantic_text=text[:2000]
+    if re.search(r'\bexternal clock (?:net|node)\b',text,re.I):
+        plan.unverified_requirements.append(Unverified(requirement='Clock waveform and timing',reason='Clock-named external controls are naming evidence only. Bias, waveform, phase and comparator operation are not simulated.',evidence_needed='Clock stimulus, operating conditions and transient simulation; differently named controls need explicit port bindings.'))
     if RULEBOOK.exists():
         book=load_rulebook()
         normalized=text.lower()
+        parents=[f for f in book['families'] if f['id']!='current_mirror' and any(alias_matches(a,normalized) for a in f['aliases'])]
+        embedded={p['id']:p for p in book['primitives'] if p.get('deterministic_seed') and block_intent(p['aliases'],normalized)[0]} if parents else {}
+        seeds=[GraphPattern.model_validate(p) for primitive in embedded.values() for p in primitive.get('patterns',[])]
+        if 'mos_mirror' in embedded:
+            seeds += [GraphPattern.model_validate(p) for p in next(p for p in book['primitives'] if p['id']=='bjt_mirror')['patterns']]
+        # A demoted model block can otherwise occupy all five slots before
+        # parent rules expand. Required embedded wiring cannot also stand in
+        # for the entire requested circuit, even under renamed aliases.
+        plan.hypotheses=[h for h in plan.hypotheses if not any(same_wiring(h.pattern,p) for p in seeds)]
         if re.search(r"\bcomparator\b",normalized):
             primitive=next(p for p in book["primitives"] if p["id"]=="regenerative_comparator")
             preferred=[Hypothesis(interpretation=primitive["description"]+" (curated composite; function still unverified)",pattern=GraphPattern.model_validate(p)) for p in primitive["patterns"]]
             plan.hypotheses=(preferred+plan.hypotheses)[:5]
         for identifier in dict.fromkeys(plan.hypothesis_rules):
+            if identifier in embedded:continue
             primitive=next(p for p in book["primitives"] if p["id"]==identifier)
             for pattern in primitive.get("patterns",[]):
                 hypothesis=Hypothesis(interpretation=primitive["description"]+" (curated rule)",pattern=GraphPattern.model_validate(pattern))
@@ -191,13 +234,12 @@ def ground_plan(text, plan):
         # Only explicit primitive requests use fixed queries. A generic comparator
         # needs a combination/context; no single fixed motif certifies its function.
         direct=[p for p in book["primitives"] if p.get("deterministic_seed") and any(alias_matches(a,normalized) for a in p["aliases"])]
-        parents=[f for f in book["families"] if f["id"]!="current_mirror" and any(alias_matches(a,normalized) for a in f["aliases"])]
         for primitive in direct:
             # The generic pair seed ties sources directly. A source-degenerated
             # pair instead has distinct source nodes connected through passives;
             # its explicit connected pattern is audited above, not replaced or
             # ANDed with a contradictory shared-source seed.
-            if primitive['id']=='mos_diff_pair' and re.search(r'\bsource[- ]degenerat(?:ion|ed|ing)\b',normalized):
+            if primitive['id']=='mos_diff_pair' and pair_source_degenerated(primitive['aliases'],normalized):
                 continue
             patterns=primitive.get("patterns",[])
             qualifiers=motif_qualifiers(primitive['aliases'],normalized)
@@ -220,7 +262,18 @@ def ground_plan(text, plan):
             if contains:
                 if patterns:
                     mixed_or_bjt_mirror=primitive['id']=='mos_mirror' and (generic_mirror or bool(allowed & {'npn','pnp'}))
-                    block=RequiredBlock(name='Current mirror' if mixed_or_bjt_mirror else primitive["name"],alternatives=[GraphPattern.model_validate(p) for p in patterns[:5]])
+                    alternatives=[GraphPattern.model_validate(p) for p in patterns[:5]]
+                    if primitive['id']=='mos_diff_pair':
+                        input_mentions=list(re.finditer(r'\b(?:differential\s+)?input pairs?\b',normalized))
+                        external_input=any(not re.search(r'\binternal\s*$',normalized[max(0,m.start()-30):m.start()]) for m in input_mentions)
+                        if external_input:
+                            from .nl_schema import NetCondition
+                            for pattern in alternatives:
+                                for net in {e.net for e in pattern.edges if e.terminal=='gate'}:
+                                    for condition in ('external','not_rail'):
+                                        hint=NetCondition(net=net,condition=condition)
+                                        if hint not in pattern.net_conditions:pattern.net_conditions.append(hint)
+                    block=RequiredBlock(name='Current mirror' if mixed_or_bjt_mirror else primitive["name"],alternatives=alternatives)
                     plan.required_blocks=[b for b in plan.required_blocks if b.source_quote or (b.name!=block.name and not ('mirror' in b.name.lower() and 'mirror' in block.name.lower()))]+[block]
                 # Leave parent-function hypotheses intact: mirror containment is
                 # eligibility evidence, not a replacement for parent function.

@@ -4,7 +4,7 @@ import operator
 import re
 import numpy as np
 from circuit_ingest.models import CircuitRecord
-from .nl_schema import NaturalRequest, SearchPlan, PrototypeBatch, RECIPROCAL_TYPES, NET_ROLE_NAMES
+from .nl_schema import NaturalRequest, SearchPlan, PrototypeBatch, RECIPROCAL_TYPES, NET_ROLE_NAMES, CLOCK_NAME_PATTERN, stage_feedback_constraints
 from .nl_compiler import compile_query, GROUPS
 from .nl_providers import validated_generate
 from .uploads import parse_upload
@@ -63,6 +63,9 @@ Partial graph hypotheses are only for inferred family guidance, not a substitute
 for mandatory patterns. Optional/preferences remain soft, negatives never positive.
 No invented property filters. A literal capacitor is required even without a count.
 All alternative mandatory patterns must independently satisfy the complete request.
+Physical counts/presence are whole-circuit filters. If a capacitor/resistor is
+only counted and no placement is stated, do not invent its placement in the
+connected signal-path pattern; include it there only if its wiring is specified.
 For a numbered stage request, every mandatory alternative MUST include signal_stages
 in order. Each stage lists its distinct gain-transistor aliases, input net aliases,
 and output net aliases; previous outputs must feed next inputs. Do not reuse a
@@ -80,12 +83,19 @@ conventions, not simulated voltage. Use supply for an explicitly requested suppl
 connection, ground for ground and rail when either is allowed; never drop these
 clauses into unverified text. External input/output signal terminals need BOTH
 external and not_rail. A grounded source is not an external signal output.
+For an explicitly external clock net require BOTH external and clock_named on
+its controlling gate/base. clock_named checks VCLK/CLK/CLOCK/PHI/CK naming hints;
+it does not prove a waveform. Do not substitute any arbitrary external bias.
 Do not invent an unspecified device polarity or extra separate rail. Prefer
 minimal constraints and complete alternatives for unspecified polarities. Shared
 supplies must reuse one alias; independently named supply aliases cannot collapse.
 Leave unrequested output-stage source/bulk terminals unbound when the request
 only requires an internal signal to drive a distinct output gain transistor.
 Otherwise a gratuitous separate source alias excludes valid shared-supply stages.
+Similarly, cross-coupled latch wiring requires mutual gate-drain ties, NOT an
+invented shared source with the input pair or a particular source rail. Leave
+unrequested latch source/bulk terminals unbound. Tail/reset alternatives must
+remain connected to the input/latch nodes they control.
 If a requested function/spec cannot be proven, disclose it as unverified separately
 without erasing its explicit graph-level requirements. Return all schema fields.
 """
@@ -145,9 +155,17 @@ def pattern_witness(record, pattern, max_states=20000):
         initial[port.net] = actual
     if len(set(initial.values()))!=len(initial):return None
     states = 0
+    folds=stage_feedback_constraints(pattern)
+    reverse_contacts=set()
+    for d in record.devices:
+        if d.canonical_type not in {'nmos','pmos','npn','pnp'}:continue
+        control,output=('gate','drain') if d.canonical_type in {'nmos','pmos'} else ('base','collector')
+        terminals={e.terminal:e.net_id for e in d.connections}
+        reverse_contacts.add((d.canonical_type,terminals[control],terminals[output]))
     def visit(index, used, bindings, device_map):
         nonlocal states
         if index == len(order):
+            if any((kind,bindings[b],bindings[a]) in reverse_contacts for kind,_,_,a,b in folds):return None
             return device_map, bindings
         if states >= max_states:
             return None
@@ -170,6 +188,7 @@ def pattern_witness(record, pattern, max_states=20000):
                     if c.net not in next_bindings:return False
                     net=net_records[next_bindings[c.net]]
                     if c.condition=='external':return not net.is_external
+                    if c.condition=='clock_named':return not re.fullmatch(CLOCK_NAME_PATTERN,net.name.upper())
                     if c.condition=='not_rail':return net.name.upper() in NET_ROLE_NAMES['rail']
                     return net.name.upper() not in NET_ROLE_NAMES[c.condition]
                 if any(condition_fails(c) for c in pattern.net_conditions):continue
@@ -314,7 +333,12 @@ class NaturalSearch:
                     continue
                 seen.add(signature)
                 progress("matching structural interpretations")
-                query, params = compile_query(plan, hypothesis.pattern)
+                # Hard filters and canonical witnesses already passed above.
+                # Repeating their multi-alternative joins for every optional
+                # hypothesis can exhaust Neo4j's query budget. Restrict the
+                # soft match to this owned pool without weakening eligibility.
+                query, params = compile_query(SearchPlan(), hypothesis.pattern,
+                    candidate_ids=[c['row']['id'] for c in candidates])
                 found = self.neo.candidate_query(query, params)
                 matched_ids = {r["circuit_id"] for r in found["rows"]}
                 queries.append({"purpose": hypothesis.interpretation, "cypher": query, "parameters": params})
@@ -324,7 +348,8 @@ class NaturalSearch:
                         if witness:
                             candidate["matches"].append({"interpretation": hypothesis.interpretation, "witness": witness,'specificity':len(hypothesis.pattern.edges)+len(hypothesis.pattern.distinct_nets)+len(hypothesis.pattern.net_conditions)})
         weak=[]
-        if plan.hypotheses and not (plan.required_pattern or plan.required_blocks):
+        complete_wiring=plan.required_pattern or any(b.source_quote for b in plan.required_blocks)
+        if plan.hypotheses and not complete_wiring:
             weak=[c for c in candidates if not c['matches']]
             candidates=[c for c in candidates if c['matches']]
         if request.strategy=='prototypes' and candidates:

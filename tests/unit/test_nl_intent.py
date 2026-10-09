@@ -164,3 +164,64 @@ def test_explicit_supply_and_external_signals_keep_the_complete_pattern():
                           {'net':'drain','condition':'supply'}]}
     p=ground_plan(text,grounded(text,pattern))
     assert not p.clarification_questions and p.required_blocks
+
+
+def test_explicit_external_clock_cannot_be_only_an_arbitrary_external_control():
+    text='Find a transistor controlled by an external clock net.'
+    pattern={'devices':[{'alias':'m','type':'nmos'}],'nets':['control'],
+        'edges':[{'device':'m','terminal':'gate','net':'control'}],
+        'net_conditions':[{'net':'control','condition':'external'}]}
+    result=ground_plan(text,grounded(text,pattern))
+    assert result.clarification_questions
+
+
+def test_clock_named_control_remains_only_structural_naming_evidence():
+    text='Find a transistor controlled by an external clock net.'
+    pattern={'devices':[{'alias':'m','type':'nmos'}],'nets':['control'],
+        'edges':[{'device':'m','terminal':'gate','net':'control'}],
+        'net_conditions':[{'net':'control','condition':'external'},{'net':'control','condition':'clock_named'}]}
+    result=ground_plan(text,grounded(text,pattern))
+    assert not result.clarification_questions and result.required_blocks
+
+
+def test_controlled_family_adjective_does_not_invent_an_explicit_terminal_clause():
+    from circuit_workbench.nl_intent import intent_audit
+    assert intent_audit('Find voltage-controlled oscillator candidates.')['wiring']==[]
+
+
+def test_count_only_passives_do_not_need_invented_placement_inside_a_signal_chain():
+    text='Find a two-stage amplifier with a differential input stage feeding a separate common-source stage. Require at least 2 capacitors and fewer than 20 transistors.'
+    pattern=composite();pattern['devices']=pattern['devices'][:-1];pattern['edges']=pattern['edges'][:-2]
+    pattern['signal_stages']=[{'devices':['a','b'],'input_nets':['in1','in2'],'output_nets':['first']},
+                              {'devices':['g'],'input_nets':['first'],'output_nets':['out']}]
+    result=ground_plan(text,grounded(text,pattern))
+    assert not result.clarification_questions and result.required_blocks
+    assert any(c.entity=='capacitor' and c.operator=='ge' and c.value==2 for c in result.count_constraints)
+
+
+@pytest.mark.parametrize('other_type',['nmos','pmos'])
+@pytest.mark.parametrize('text',[
+    'Find one NMOS whose gate connects to an external input net, drain connects to a supply rail, and source connects to a distinct external output net.',
+    'Find another NMOS whose gate connects to an external input net and drain connects to a supply rail and source connects to a distinct external output net.',
+])
+def test_one_transistors_requested_terminal_roles_cannot_be_split_across_devices(other_type,text):
+    p={'devices':[{'alias':'a','type':'nmos'},{'alias':'b','type':other_type}],
+       'nets':['input','link','supply','output'],
+       'edges':[{'device':d,'terminal':t,'net':n} for d,t,n in [('a','gate','input'),('a','source','link'),('b','gate','link'),('b','drain','supply'),('b','source','output')]],
+       'net_conditions':[{'net':'input','condition':'external'},{'net':'input','condition':'not_rail'},{'net':'output','condition':'external'},{'net':'output','condition':'not_rail'},{'net':'supply','condition':'supply'}]}
+    result=ground_plan(text,grounded(text,p))
+    assert result.clarification_questions
+
+
+def test_named_differential_input_pair_is_not_an_unrelated_internal_pair():
+    from circuit_workbench.nl_search import required_evidence
+    from circuit_workbench.uploads import parse_upload
+    text='Find comparator candidates containing a differential input pair.'
+    pattern={'devices':[{'alias':'a','type':'nmos'},{'alias':'b','type':'nmos'}],
+        'nets':['in_a','in_b','tail','out_a','out_b'],
+        'edges':[{'device':d,'terminal':t,'net':n} for d,t,n in [('a','gate','in_a'),('b','gate','in_b'),('a','source','tail'),('b','source','tail'),('a','drain','out_a'),('b','drain','out_b')]]}
+    plan=ground_plan(text,grounded(text,pattern))
+    external=parse_upload('M1 (out_a INP tail VSS) nmos4\nM2 (out_b INN tail VSS) nmos4','external input pair','INP INN VSS')
+    internal=parse_upload('M1 (out_a private_a tail VSS) nmos4\nM2 (out_b private_b tail VSS) nmos4','internal pair','VSS')
+    assert not plan.clarification_questions and required_evidence(external,plan)[2]==[]
+    assert required_evidence(internal,plan)[2]

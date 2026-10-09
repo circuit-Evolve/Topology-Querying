@@ -150,13 +150,30 @@ a verbatim quote covering all requested connections. Incomplete conversions ask
 for clarification instead of searching a weaker request. Numbered gain-stage
 requests require separate, ordered gain-device groups and connected signal
 interfaces; this is wiring evidence, not a simulation-certified stage count.
+A direct reciprocal gate–drain/base–collector regenerative branch is not counted
+as an extra feedforward gain stage. This is a conservative wiring proxy, not a
+general analysis of feedback or operating gain.
 Different pattern net aliases mean different physical nets; intentionally shared
 connections must reuse one alias. Resistors/capacitors/inductors match either
-terminal orientation. Both retrieval strategies enforce the same mandatory
+terminal orientation. Explicit terminal/interface clauses can require external
+non-rail signals, supply, ground or either rail. Supply/ground checks use the
+documented VDD/VCC/VSS/VEE/GND/0 naming conventions (plus VDD!, VCC!, VSS!, GND!),
+not measured voltage; differently named supplies need explicit port bindings.
+Explicit external-clock searches use VCLK/CLK/CLOCK/PHI/CK naming hints on an
+external control gate; ordinary bias controls are not interchangeable. This
+does not validate a waveform, phase or clocked operation, and differently named
+clock controls need an explicit port-binding query.
+An explicitly source-degenerated pair is not forced into the generic shared-source
+pair template. Both retrieval strategies enforce the same mandatory
 patterns against canonical records before ranking. Near misses are shown
 separately and never counted as full results. Optional blocks do not filter results. Requests
 for absence of a named block ask for clarification in V1 instead of reversing
 their meaning; the expert Cypher console supports explicit absence queries.
+Embedded-block patterns cannot fill the parent-function hypothesis budget or
+qualify a plain mirror as a differential-amplifier candidate. Soft graph matching
+runs only within the hard-filtered, source-validated pool rather than repeating
+the mandatory graph search. These safeguards are bounded, not a general
+electrical or natural-language proof.
 
 For reproducible live checks, run `PYTHONPATH=src .venv/bin/python
 scripts/verify-natural-search.py --case mirror --strategy prototypes` as one

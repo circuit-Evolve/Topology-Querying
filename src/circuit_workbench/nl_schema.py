@@ -11,6 +11,7 @@ NET_ROLE_NAMES = {
     'ground': ('VSS','VEE','GND','0','GND!','VSS!'),
 }
 NET_ROLE_NAMES['rail'] = NET_ROLE_NAMES['supply'] + NET_ROLE_NAMES['ground']
+CLOCK_NAME_PATTERN = r'^(VCLK|CLK|CLOCK|PHI|CK).*'
 DeviceType = Literal["nmos", "pmos", "npn", "pnp", "resistor", "capacitor", "inductor", "diode", "voltage_source", "current_source", "xor", "pfd", "inverter", "transmission_gate"]
 Entity = Literal["device", "transistor", "mos", "bjt", "port", "net", "nmos", "pmos", "npn", "pnp", "resistor", "capacitor", "inductor", "diode", "voltage_source", "current_source", "xor", "pfd", "inverter", "transmission_gate"]
 Alias = Annotated[str, Field(pattern=r"^[A-Za-z][A-Za-z0-9_]{0,31}$")]
@@ -39,7 +40,7 @@ class PortBinding(Contract):
 
 class NetCondition(Contract):
     net: Alias
-    condition: Literal["not_rail", "external", "supply", "ground", "rail"]
+    condition: Literal["not_rail", "external", "supply", "ground", "rail", "clock_named"]
 
 
 class SignalStage(Contract):
@@ -93,6 +94,26 @@ class GraphPattern(Contract):
             prior_outputs.update(e.net for e in self.edges if e.device in stage.devices and e.terminal in primary_roles)
             used.update(stage.devices);previous=set(stage.output_nets)
         return self
+
+
+def stage_feedback_constraints(pattern):
+    """Direct reciprocal active branches are regeneration, not extra cascade stages.
+
+    This conservative feedforward proxy does not classify all feedback circuits.
+    Each tuple describes a forbidden reverse control/output contact pair.
+    """
+    kinds={d.alias:d.type for d in pattern.devices}
+    contacts={d.alias:{e.terminal:e.net for e in pattern.edges if e.device==d.alias} for d in pattern.devices}
+    checks=[]
+    for before,after in zip(pattern.signal_stages,pattern.signal_stages[1:]):
+        for alias in after.devices:
+            kind=kinds[alias]
+            control,output=('gate','drain') if kind in {'nmos','pmos'} else ('base','collector')
+            a,b=contacts[alias].get(control),contacts[alias].get(output)
+            if a in before.output_nets and a in after.input_nets and b in after.output_nets:
+                check=(kind,control,output,a,b)
+                if check not in checks:checks.append(check)
+    return checks
 
 
 class CountConstraint(Contract):

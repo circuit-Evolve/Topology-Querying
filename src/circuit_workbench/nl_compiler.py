@@ -1,15 +1,18 @@
 """Compile validated patterns into owned, parameterized read-only Cypher."""
-from .nl_schema import SearchPlan, GraphPattern, TERMINALS, RECIPROCAL_TYPES, NET_ROLE_NAMES
+from .nl_schema import SearchPlan, GraphPattern, TERMINALS, RECIPROCAL_TYPES, NET_ROLE_NAMES, CLOCK_NAME_PATTERN, stage_feedback_constraints
 
 OPERATORS = {"eq": "=", "gt": ">", "ge": ">=", "lt": "<", "le": "<="}
 GROUPS = {"transistor": ["nmos", "pmos", "npn", "pnp"], "mos": ["nmos", "pmos"], "bjt": ["npn", "pnp"]}
 
 
-def compile_query(plan: SearchPlan, pattern: GraphPattern | None = None):
+def compile_query(plan: SearchPlan, pattern: GraphPattern | None = None, *, candidate_ids: list[str] | None = None):
     # Revalidate even callers holding model objects (model_construct bypasses validation).
     plan = SearchPlan.model_validate(plan.model_dump())
     pattern = GraphPattern.model_validate(pattern.model_dump()) if pattern else None
     params, predicates = {}, []
+    if candidate_ids is not None:
+        params['eligible_ids']=list(candidate_ids)
+        predicates.append('c.id IN $eligible_ids')
     for i, count in enumerate(plan.count_constraints):
         key = f"count{i}"
         params[key] = count.value
@@ -86,6 +89,9 @@ def compile_pattern(pattern, prefix):
         for i,condition in enumerate(pattern.net_conditions):
             if condition.net not in bound_nets:continue
             if condition.condition=='external':where.append(f'{nets[condition.net]}.is_external = true')
+            elif condition.condition=='clock_named':
+                key=f'{prefix}clock{i}';params[key]=CLOCK_NAME_PATTERN
+                where.append(f'toUpper({nets[condition.net]}.name) =~ ${key}')
             else:
                 key=f'{prefix}rails{i}'
                 params[key]=list(NET_ROLE_NAMES['rail' if condition.condition=='not_rail' else condition.condition])
@@ -103,4 +109,12 @@ def compile_pattern(pattern, prefix):
     for i,port in enumerate(pattern.ports):
         key=f'{prefix}port{i}';params[key]=port.name
         clauses.append(f'MATCH (c)-[:HAS_PORT]->({prefix}p{i}:Port {{name: ${key}}})-[:MAPS_TO]->({nets[port.net]})')
+    folds=[]
+    for i,(kind,control,output,a,b) in enumerate(stage_feedback_constraints(pattern)):
+        variable=f'{prefix}stage_feedback{i}'
+        params.update({f'{prefix}stage_feedback_type{i}':kind,f'{prefix}stage_feedback_control{i}':control,f'{prefix}stage_feedback_output{i}':output})
+        folds.append(f'NOT EXISTS {{ MATCH (c)-[:HAS_DEVICE]->({variable}:Device {{canonical_type: ${prefix}stage_feedback_type{i}}}) '
+            f'MATCH ({variable})-[:CONNECTED_TO {{terminal: ${prefix}stage_feedback_control{i}}}]->({nets[b]}), '
+            f'({variable})-[:CONNECTED_TO {{terminal: ${prefix}stage_feedback_output{i}}}]->({nets[a]}) RETURN 1 }}')
+    if folds:clauses.append('WITH DISTINCT '+', '.join(['c']+list(devices.values())+list(nets.values()))+' WHERE '+' AND '.join(folds))
     return '\n'.join(clauses)+'\nRETURN 1',params

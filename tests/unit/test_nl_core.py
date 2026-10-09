@@ -233,3 +233,43 @@ def test_source_degeneration_without_a_complete_custom_pattern_fails_closed():
     from circuit_workbench.nl_schema import SearchPlan
     plan=ground_plan('Find an amplifier with an NMOS input pair and separate source-degeneration resistors, each source connected through its own resistor to the common tail.',SearchPlan())
     assert plan.clarification_questions
+
+
+def test_embedded_mirror_cannot_fill_the_budget_and_displace_parent_hypotheses():
+    from circuit_workbench.nl_core import ground_plan,load_rulebook
+    from circuit_workbench.nl_schema import SearchPlan,Hypothesis,GraphPattern
+    mirror=GraphPattern.model_validate(next(p for p in load_rulebook()['primitives'] if p['id']=='mos_mirror')['patterns'][0])
+    raw=mirror.model_dump()
+    names={s:'renamed_'+s for s in [d.alias for d in mirror.devices]+mirror.nets}
+    for d in raw['devices']:d['alias']=names[d['alias']]
+    raw['nets']=[names[n] for n in raw['nets']]
+    for e in raw['edges']:e.update(device=names[e['device']],net=names[e['net']])
+    raw['distinct_nets']=[(names[a],names[b]) for a,b in raw['distinct_nets']]
+    renamed=GraphPattern.model_validate(raw)
+    p=ground_plan('Find differential amplifier candidates containing a current mirror and fewer than 16 transistors.',
+        SearchPlan(hypotheses=[Hypothesis(interpretation='model wording',pattern=renamed)]*5,hypothesis_rules=['mos_diff_pair']))
+    assert len(p.hypotheses)==2
+    assert {h.pattern.devices[0].type for h in p.hypotheses}=={'nmos','pmos'}
+
+
+def test_reversed_passive_block_cannot_displace_parent_hypotheses():
+    from circuit_workbench.nl_core import ground_plan,load_rulebook
+    from circuit_workbench.nl_schema import SearchPlan,Hypothesis,GraphPattern
+    raw=next(p for p in load_rulebook()['primitives'] if p['id']=='rc_branch')['patterns'][0]
+    pattern=GraphPattern.model_validate(raw).model_copy(deep=True)
+    for edge in pattern.edges:
+        if edge.device=='r':edge.terminal='n' if edge.terminal=='p' else 'p'
+    p=ground_plan('Find differential amplifier candidates containing an RC branch.',SearchPlan(
+        hypotheses=[Hypothesis(interpretation='reversed passive variant',pattern=pattern)]*5,hypothesis_rules=['mos_diff_pair']))
+    assert len(p.hypotheses)==2 and {h.pattern.devices[0].type for h in p.hypotheses}=={'nmos','pmos'}
+
+
+@pytest.mark.parametrize('text',[
+    'Find an amplifier containing a conventional NMOS differential pair; its output stage is source-degenerated.',
+    'Find an amplifier containing an NMOS differential pair and a source-degenerated output stage.',
+])
+def test_output_stage_degeneration_does_not_remove_a_conventional_input_pair(text):
+    from circuit_workbench.nl_core import ground_plan
+    from circuit_workbench.nl_schema import SearchPlan
+    result=ground_plan(text,SearchPlan())
+    assert any('pair' in b.name.lower() for b in result.required_blocks)

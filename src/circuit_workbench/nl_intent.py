@@ -34,7 +34,7 @@ def intent_audit(text):
                 # A compound modifier is not a discrete component: e.g.
                 # diode-connected transistor, capacitor-coupled stage.
                 if not re.match(r'\s*[-–]?\s*(?:connected|coupled|loaded|input|based)\b',clause[match.end():],re.I):presence.add(entity)
-        if WIRING.search(clause):wiring.append(clause)
+        if WIRING.search(clause) or re.search(r'\bexternal clock (?:net|node)\b',clause,re.I):wiring.append(clause)
     words={'one':1,'two':2,'three':3,'four':4,'five':5}
     stage_counts={words.get(m.group(1).lower(),int(m.group(1)) if m.group(1).isdigit() else 0) for m in re.finditer(r'\b(\d+|one|two|three|four|five)[- ]+(?:gain\s+)?stages?\b(?!\s+(?:outputs?|inputs?|nodes?)\b)','; '.join(positive),re.I)}
     return {'wiring':wiring,'presence':sorted(presence),'negative_wiring':negative_wiring,'signal_stage_count':next(iter(stage_counts)) if len(stage_counts)==1 else None,'ambiguous_stages':len(stage_counts)>1}
@@ -101,7 +101,10 @@ def quote_patterns_valid(text,quote,patterns,audit):
     if intent_audit(quote)['negative_wiring']:return False
     # Physical type mentions cannot be fulfilled by prose attached to a smaller
     # pattern (the original failure). All OR alternatives must be complete.
-    types=intent_audit(quote)['presence']
+    # Count/presence-only components are enforced independently on the whole
+    # circuit. Only types mentioned in wiring clauses must occur in this
+    # connected pattern; otherwise we invent an unrequested passive placement.
+    types=intent_audit('; '.join(audit['wiring']))['presence']
     differential=bool(re.search(r'\bdifferential[- ]input\b|\bdifferential input\b',text,re.I))
     for pattern in patterns:
         if not connected(pattern) or (audit['signal_stage_count'] and len(pattern.signal_stages)!=audit['signal_stage_count']):return False
@@ -123,13 +126,28 @@ def explicit_net_roles_valid(pattern,clauses):
     """
     roles=re.compile(r'\b(gate|drain|source|bulk|base|collector|emitter)\s+(?:connects?\s+to|is\s+connected\s+to|is\s+tied\s+to)\s+(?:an?\s+)?(?:distinct\s+)?(external\s+(?:input\s+|output\s+)?(?:net|node)|supply\s+rail|ground\s+rail|rail)\b',re.I)
     conditions={n:{c.condition for c in pattern.net_conditions if c.net==n} for n in pattern.nets}
+    kinds={d.alias:d.type for d in pattern.devices}
+    subjects={};subject=0;entity='transistor'
     for clause in clauses:
+        if re.search(r'\bexternal clock (?:net|node)\b',clause,re.I):
+            if not any(e.terminal in {'gate','base'} and {'external','clock_named'}<=conditions[e.net] for e in pattern.edges):return False
+        previous_end=0
         for match in roles.finditer(clause):
+            prefix=clause[previous_end:match.start()]
+            previous_end=match.end()
+            mentions=list(re.finditer(r'\b(nmos(?:fet)?|pmos(?:fet)?|npn|pnp|mosfet|mos|bjt|transistor)\b',prefix,re.I))
+            if mentions:
+                named=mentions[-1].group(1).lower().replace('fet','')
+                if named!=entity or re.search(r'\b(?:another|different|second|separate)\b',prefix):subject+=1
+                entity=named
             terminal,role=match.groups();role=role.lower()
             expected={'external'} if role.startswith('external') else {role.split()[0]}
             if re.search(r'\b(?:input|output)\b',role):expected.add('not_rail')
-            if not any(e.terminal==terminal.lower() and expected<=conditions[e.net] for e in pattern.edges):return False
-    return True
+            choices={e.device for e in pattern.edges if e.terminal==terminal.lower() and expected<=conditions[e.net] and kinds[e.device] in GROUPS.get(entity,[entity])}
+            # Bare/pronominal terminal continuations retain the subject: one
+            # transistor's gate/drain/source cannot be distributed over others.
+            subjects[subject]=subjects.get(subject,set(kinds)) & choices
+    return all(subjects.values())
 
 def stage_interfaces(pattern):
     if not pattern.signal_stages:return

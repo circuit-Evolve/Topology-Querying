@@ -38,6 +38,23 @@ def test_named_rail_conditions_are_checked_in_canonical_witness_and_cypher(condi
     assert good.upper() in params['hardrails0'] and bad.upper() not in params['hardrails0']
 
 
+@pytest.mark.parametrize('clock',['VCLK1','CLK2','PHI1','clock_eval'])
+def test_clock_name_hint_excludes_an_ordinary_external_bias_net(clock):
+    from circuit_workbench.nl_schema import GraphPattern,SearchPlan
+    from circuit_workbench.nl_search import pattern_witness
+    from circuit_workbench.nl_compiler import compile_query
+    from circuit_workbench.uploads import parse_upload
+    p=GraphPattern.model_validate({'devices':[{'alias':'switch','type':'nmos'}],
+        'nets':['clock'],'edges':[{'device':'switch','terminal':'gate','net':'clock'}],
+        'net_conditions':[{'net':'clock','condition':'external'},{'net':'clock','condition':'clock_named'}]})
+    assert pattern_witness(parse_upload(f'M1 (tail {clock} VSS VSS) nmos4','clock switch',clock),p)
+    assert pattern_witness(parse_upload('M1 (tail VB1 VSS VSS) nmos4','bias device','VB1'),p) is None
+    query,params=compile_query(SearchPlan(required_pattern=p))
+    import re
+    assert 'toUpper(hardn0.name) =~ $hardclock1' in query
+    assert re.fullmatch(params['hardclock1'],clock.upper()) and not re.fullmatch(params['hardclock1'],'VB1')
+
+
 def pair():
     return {"devices": [{"alias": "a", "type": "nmos"}, {"alias": "b", "type": "nmos"}],
             "nets": ["tail", "in1", "in2"],
@@ -136,6 +153,61 @@ def test_search_filters_stale_graph_counts_and_keeps_unsupported_matches_separat
     assert all(sum(c["statistics"]["device_type_counts"].get(k, 0) for k in ("nmos", "pmos", "npn", "pnp")) < 17 for c in result["partial_items"])
     assert all(c['missing_requirements'] for c in result['partial_items'])
     assert any("Near misses" in w for w in result["warnings"])
+
+
+def test_parent_function_candidates_need_evidence_beyond_the_required_embedded_mirror(tmp_path):
+    import threading
+    from tests.unit.test_workbench import catalog
+    from circuit_workbench.retrieval import Retrieval
+    from circuit_workbench.nl_schema import SearchPlan
+    from circuit_workbench.nl_search import NaturalSearch
+    from circuit_workbench.uploads import parse_upload
+    db=catalog(tmp_path)
+    nets=[('M1 (control control VSS VSS) nmos4\nM2 (OUT control VSS VSS) nmos4','mirror only','OUT control VSS'),
+          ('M1 (left INP TAIL VSS) nmos4\nM2 (OUT INN TAIL VSS) nmos4\nM3 (left left VDD VDD) pmos4\nM4 (OUT left VDD VDD) pmos4','amplifier fixture','INP INN OUT VDD VSS')]
+    ids=[]
+    for text,description,ports in nets:
+        record=parse_upload(text,description,ports);ids.append(db.add_upload(record,text,{'description':description}))
+    class Neo:
+        def candidate_query(self,*args):return {'rows':[{'circuit_id':i} for i in ids],'truncated':False}
+    search=NaturalSearch(db,Neo(),Retrieval(db),generate=lambda *a:SearchPlan(requested_function='differential amplifier',hypothesis_rules=['mos_diff_pair']))
+    result=search.run({'text':'Find differential amplifier candidates containing a current mirror and fewer than 16 transistors.'},threading.Event(),lambda s:None)
+    assert [c['id'] for c in result['items']]==[ids[1]]
+    for query in result['queries'][1:]:
+        assert set(query['parameters']['eligible_ids'])==set(ids)
+        assert not any(k.startswith('block') for k in query['parameters'])
+
+
+def test_compiler_can_restrict_soft_matching_to_owned_candidate_ids_without_interpolation():
+    from circuit_workbench.nl_compiler import compile_query
+    from circuit_workbench.nl_schema import SearchPlan,GraphPattern
+    ids=["example' OR 1=1",'uploaded:fixture']
+    query,params=compile_query(SearchPlan(),GraphPattern.model_validate(pair()),candidate_ids=ids)
+    assert 'c.id IN $eligible_ids' in query
+    assert "example' OR 1=1" not in query and params['eligible_ids']==ids
+
+
+def test_regenerative_feedback_branch_cannot_be_counted_as_an_extra_feedforward_gain_stage():
+    from circuit_workbench.nl_schema import GraphPattern,SearchPlan
+    from circuit_workbench.nl_search import pattern_witness
+    from circuit_workbench.nl_compiler import compile_query
+    from circuit_workbench.uploads import parse_upload
+    pattern=GraphPattern.model_validate({'devices':[{'alias':d,'type':'nmos'} for d in ['a','b','second','third']],
+        'nets':['in_a','in_b','tail','left','right','middle','out'],
+        'edges':[{'device':d,'terminal':t,'net':n} for d,t,n in [
+            ('a','gate','in_a'),('a','source','tail'),('a','drain','left'),
+            ('b','gate','in_b'),('b','source','tail'),('b','drain','right'),
+            ('second','gate','left'),('second','drain','middle'),('third','gate','middle'),('third','drain','out')]],
+        'signal_stages':[{'devices':['a','b'],'input_nets':['in_a','in_b'],'output_nets':['left']},
+                         {'devices':['second'],'input_nets':['left'],'output_nets':['middle']},
+                         {'devices':['third'],'input_nets':['middle'],'output_nets':['out']}]})
+    text='M1 (left INP tail VSS) nmos4\nM2 (right INN tail VSS) nmos4\nM3 (middle left VSS VSS) nmos4\nM4 (OUT middle VSS VSS) nmos4'
+    good=parse_upload(text,'three-stage feedforward fixture','INP INN OUT VSS')
+    feedback=parse_upload(text+'\nM5 (middle OUT VSS VSS) nmos4','regenerative feedback fixture','INP INN OUT VSS')
+    assert pattern_witness(good,pattern) is not None
+    assert pattern_witness(feedback,pattern) is None
+    query,params=compile_query(SearchPlan(required_pattern=pattern))
+    assert 'NOT EXISTS' in query and 'stage_feedback' in query
 
 
 def test_pattern_witness_rejects_diode_pair_misread_as_separate_inputs():
