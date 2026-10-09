@@ -188,6 +188,12 @@ def ground_plan(text, plan):
         direct=[p for p in book["primitives"] if p.get("deterministic_seed") and any(alias_matches(a,normalized) for a in p["aliases"])]
         parents=[f for f in book["families"] if f["id"]!="current_mirror" and any(alias_matches(a,normalized) for a in f["aliases"])]
         for primitive in direct:
+            # The generic pair seed ties sources directly. A source-degenerated
+            # pair instead has distinct source nodes connected through passives;
+            # its explicit connected pattern is audited above, not replaced or
+            # ANDed with a contradictory shared-source seed.
+            if primitive['id']=='mos_diff_pair' and re.search(r'\bsource[- ]degenerat(?:ion|ed|ing)\b',normalized):
+                continue
             patterns=primitive.get("patterns",[])
             qualifiers=motif_qualifiers(primitive['aliases'],normalized)
             generic_mirror=primitive['id']=='mos_mirror' and not qualifiers

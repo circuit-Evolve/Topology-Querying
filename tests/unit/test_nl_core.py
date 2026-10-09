@@ -205,3 +205,29 @@ def test_opposite_load_polarity_does_not_reject_a_real_input_pair():
     plan=ground_plan(text,SearchPlan())
     record=parse_upload('M0 (branch INP tail VDD) pmos4\nM1 (first INN tail VDD) pmos4\nM2 (branch branch VSS VSS) nmos4\nM3 (first branch VSS VSS) nmos4\nM4 (OUT first VSS VSS) nmos4\nC0 (OUT first) capacitor','mixed polarity fixture','INP INN OUT VDD VSS tail')
     assert required_evidence(record,plan)[2]==[]
+
+
+def test_explicit_source_degenerated_pair_is_not_overconstrained_by_shared_source_seed():
+    from circuit_workbench.nl_core import ground_plan
+    from circuit_workbench.nl_schema import SearchPlan,GraphPattern
+    from circuit_workbench.nl_search import required_evidence
+    from circuit_workbench.uploads import parse_upload
+    text='Find an amplifier with an NMOS input pair and separate source-degeneration resistors. Each source connects through its own resistor to a common tail node.'
+    pattern=GraphPattern.model_validate({
+        'devices':[{'alias':a,'type':t} for a,t in [('a','nmos'),('b','nmos'),('ra','resistor'),('rb','resistor')]],
+        'nets':['in_a','in_b','out_a','out_b','source_a','source_b','tail'],
+        'edges':[{'device':d,'terminal':t,'net':n} for d,t,n in [
+            ('a','gate','in_a'),('a','drain','out_a'),('a','source','source_a'),
+            ('b','gate','in_b'),('b','drain','out_b'),('b','source','source_b'),
+            ('ra','p','source_a'),('ra','n','tail'),('rb','p','source_b'),('rb','n','tail')]]})
+    plan=ground_plan(text,SearchPlan(required_pattern=pattern,required_pattern_source=text))
+    record=parse_upload('M1 (OUTA INP SA VSS) nmos4\nM2 (OUTB INN SB VSS) nmos4\nR1 (SA TAIL) resistor\nR2 (SB TAIL) resistor','degenerated fixture','INP INN OUTA OUTB VSS')
+    assert not plan.clarification_questions
+    assert required_evidence(record,plan)[2]==[]
+
+
+def test_source_degeneration_without_a_complete_custom_pattern_fails_closed():
+    from circuit_workbench.nl_core import ground_plan
+    from circuit_workbench.nl_schema import SearchPlan
+    plan=ground_plan('Find an amplifier with an NMOS input pair and separate source-degeneration resistors, each source connected through its own resistor to the common tail.',SearchPlan())
+    assert plan.clarification_questions
