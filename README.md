@@ -109,6 +109,8 @@ prototype netlists to inspect what the search used. Click a candidate to see its
 original schematic, netlist and graphs. Cancel stops this app's owned conversion;
 successful requests are saved in history. A blank prompt with a selected reference
 uses the original direct topology search without calling a model.
+Refreshing resets query forms, options and visible results to their initial state.
+Saved query history, annotations, circuits and Studio artifacts are retained.
 
 - **Codex CLI:** install/sign in separately (`codex login`); current CLI must support
   structured output, `--ignore-user-config` and ephemeral/read-only execution.

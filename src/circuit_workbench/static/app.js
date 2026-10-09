@@ -48,9 +48,8 @@ function bindGraphTools(panel){
   });
   network?.on('zoom',update);network?.on('animationFinished',update);network?.on('stabilized',update);update();
 }
-let queryState;
-try {queryState=JSON.parse(localStorage.getItem('atlas-query')) || {};} catch {queryState={};}
-queryState={mode:'cypher',query:'MATCH (c:Circuit)-[:HAS_DEVICE]->(d:Device)\nRETURN c.id AS circuit_id, count(d) AS devices\nORDER BY devices DESC\nLIMIT 20',parameters:'{}',text:'',reference:'',strategy:'patterns',provider:'codex',model:'',limit:20,...queryState};
+// Search drafts survive navigation within this page, not a browser refresh.
+let queryState={mode:'cypher',query:'MATCH (c:Circuit)-[:HAS_DEVICE]->(d:Device)\nRETURN c.id AS circuit_id, count(d) AS devices\nORDER BY devices DESC\nLIMIT 20',parameters:'{}',text:'',reference:'',strategy:'patterns',provider:'codex',model:'',limit:20};
 let lastResult=null;
 const graphOptions={backend:'networkx',rails:false,ports:false};
 const examples=[
@@ -75,7 +74,8 @@ function profile(stats){return Object.entries(stats.device_type_counts).slice(0,
 function circuitURL(id,tab='graph'){return `#circuit/${enc(id)}/${tab}`;}
 function openCircuit(id,tab='graph'){location.hash=circuitURL(id,tab);}
 function exportJSON(data,name){const url=URL.createObjectURL(new Blob([JSON.stringify(data,null,2)],{type:'application/json'}));const a=document.createElement('a');a.href=url;a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);}
-function persistQuery(){localStorage.setItem('atlas-query',JSON.stringify(queryState));}
+// Existing form hooks mutate queryState in memory; do not persist search drafts.
+function persistQuery(){}
 function referenceId(value){value=value.trim();return /^\d+$/.test(value)?'analoggenie:'+value:value;}
 
 async function updateStatus(){
