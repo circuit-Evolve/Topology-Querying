@@ -1,0 +1,715 @@
+{
+  "schema_version": "1",
+  "requested_function": "op-amp",
+  "requested_topology": "two-stage Miller-compensated op-amp with a differential input stage feeding a second common-source gain stage",
+  "count_constraints": [
+    {
+      "entity": "transistor",
+      "operator": "lt",
+      "value": 25
+    }
+  ],
+  "property_constraints": [],
+  "required_pattern": null,
+  "required_pattern_source": "",
+  "required_blocks": [
+    {
+      "name": "Differential pair driving a common-source transistor with an interstage compensation capacitor",
+      "source_quote": "Find two-stage Miller-compensated op-amp candidates with a differential input stage feeding a second common-source gain stage, a compensation capacitor between the two stage outputs, and fewer than 25 transistors.",
+      "alternatives": [
+        {
+          "devices": [
+            {
+              "alias": "left",
+              "type": "nmos"
+            },
+            {
+              "alias": "right",
+              "type": "nmos"
+            },
+            {
+              "alias": "second",
+              "type": "pmos"
+            },
+            {
+              "alias": "compensation",
+              "type": "capacitor"
+            }
+          ],
+          "nets": [
+            "in_a",
+            "in_b",
+            "tail",
+            "branch",
+            "stage_one",
+            "stage_two",
+            "second_source"
+          ],
+          "edges": [
+            {
+              "device": "left",
+              "terminal": "gate",
+              "net": "in_a"
+            },
+            {
+              "device": "left",
+              "terminal": "source",
+              "net": "tail"
+            },
+            {
+              "device": "left",
+              "terminal": "drain",
+              "net": "branch"
+            },
+            {
+              "device": "right",
+              "terminal": "gate",
+              "net": "in_b"
+            },
+            {
+              "device": "right",
+              "terminal": "source",
+              "net": "tail"
+            },
+            {
+              "device": "right",
+              "terminal": "drain",
+              "net": "stage_one"
+            },
+            {
+              "device": "second",
+              "terminal": "gate",
+              "net": "stage_one"
+            },
+            {
+              "device": "second",
+              "terminal": "drain",
+              "net": "stage_two"
+            },
+            {
+              "device": "second",
+              "terminal": "source",
+              "net": "second_source"
+            },
+            {
+              "device": "compensation",
+              "terminal": "p",
+              "net": "stage_one"
+            },
+            {
+              "device": "compensation",
+              "terminal": "n",
+              "net": "stage_two"
+            }
+          ],
+          "ports": [],
+          "distinct_nets": [
+            [
+              "in_a",
+              "in_b"
+            ],
+            [
+              "branch",
+              "stage_one"
+            ],
+            [
+              "in_a",
+              "branch"
+            ],
+            [
+              "in_a",
+              "stage_one"
+            ],
+            [
+              "in_b",
+              "branch"
+            ],
+            [
+              "in_b",
+              "stage_one"
+            ],
+            [
+              "in_a",
+              "tail"
+            ],
+            [
+              "in_b",
+              "tail"
+            ],
+            [
+              "branch",
+              "tail"
+            ],
+            [
+              "stage_one",
+              "tail"
+            ],
+            [
+              "stage_one",
+              "stage_two"
+            ],
+            [
+              "stage_one",
+              "second_source"
+            ],
+            [
+              "stage_two",
+              "second_source"
+            ]
+          ],
+          "net_conditions": [
+            {
+              "net": "in_a",
+              "condition": "not_rail"
+            },
+            {
+              "net": "in_b",
+              "condition": "not_rail"
+            },
+            {
+              "net": "tail",
+              "condition": "not_rail"
+            },
+            {
+              "net": "branch",
+              "condition": "not_rail"
+            },
+            {
+              "net": "stage_one",
+              "condition": "not_rail"
+            },
+            {
+              "net": "stage_two",
+              "condition": "not_rail"
+            }
+          ]
+        },
+        {
+          "devices": [
+            {
+              "alias": "left",
+              "type": "pmos"
+            },
+            {
+              "alias": "right",
+              "type": "pmos"
+            },
+            {
+              "alias": "second",
+              "type": "nmos"
+            },
+            {
+              "alias": "compensation",
+              "type": "capacitor"
+            }
+          ],
+          "nets": [
+            "in_a",
+            "in_b",
+            "tail",
+            "branch",
+            "stage_one",
+            "stage_two",
+            "second_source"
+          ],
+          "edges": [
+            {
+              "device": "left",
+              "terminal": "gate",
+              "net": "in_a"
+            },
+            {
+              "device": "left",
+              "terminal": "source",
+              "net": "tail"
+            },
+            {
+              "device": "left",
+              "terminal": "drain",
+              "net": "branch"
+            },
+            {
+              "device": "right",
+              "terminal": "gate",
+              "net": "in_b"
+            },
+            {
+              "device": "right",
+              "terminal": "source",
+              "net": "tail"
+            },
+            {
+              "device": "right",
+              "terminal": "drain",
+              "net": "stage_one"
+            },
+            {
+              "device": "second",
+              "terminal": "gate",
+              "net": "stage_one"
+            },
+            {
+              "device": "second",
+              "terminal": "drain",
+              "net": "stage_two"
+            },
+            {
+              "device": "second",
+              "terminal": "source",
+              "net": "second_source"
+            },
+            {
+              "device": "compensation",
+              "terminal": "p",
+              "net": "stage_one"
+            },
+            {
+              "device": "compensation",
+              "terminal": "n",
+              "net": "stage_two"
+            }
+          ],
+          "ports": [],
+          "distinct_nets": [
+            [
+              "in_a",
+              "in_b"
+            ],
+            [
+              "branch",
+              "stage_one"
+            ],
+            [
+              "in_a",
+              "branch"
+            ],
+            [
+              "in_a",
+              "stage_one"
+            ],
+            [
+              "in_b",
+              "branch"
+            ],
+            [
+              "in_b",
+              "stage_one"
+            ],
+            [
+              "in_a",
+              "tail"
+            ],
+            [
+              "in_b",
+              "tail"
+            ],
+            [
+              "branch",
+              "tail"
+            ],
+            [
+              "stage_one",
+              "tail"
+            ],
+            [
+              "stage_one",
+              "stage_two"
+            ],
+            [
+              "stage_one",
+              "second_source"
+            ],
+            [
+              "stage_two",
+              "second_source"
+            ]
+          ],
+          "net_conditions": [
+            {
+              "net": "in_a",
+              "condition": "not_rail"
+            },
+            {
+              "net": "in_b",
+              "condition": "not_rail"
+            },
+            {
+              "net": "tail",
+              "condition": "not_rail"
+            },
+            {
+              "net": "branch",
+              "condition": "not_rail"
+            },
+            {
+              "net": "stage_one",
+              "condition": "not_rail"
+            },
+            {
+              "net": "stage_two",
+              "condition": "not_rail"
+            }
+          ]
+        },
+        {
+          "devices": [
+            {
+              "alias": "left",
+              "type": "nmos"
+            },
+            {
+              "alias": "right",
+              "type": "nmos"
+            },
+            {
+              "alias": "second",
+              "type": "nmos"
+            },
+            {
+              "alias": "compensation",
+              "type": "capacitor"
+            }
+          ],
+          "nets": [
+            "in_a",
+            "in_b",
+            "tail",
+            "branch",
+            "stage_one",
+            "stage_two",
+            "second_source"
+          ],
+          "edges": [
+            {
+              "device": "left",
+              "terminal": "gate",
+              "net": "in_a"
+            },
+            {
+              "device": "left",
+              "terminal": "source",
+              "net": "tail"
+            },
+            {
+              "device": "left",
+              "terminal": "drain",
+              "net": "branch"
+            },
+            {
+              "device": "right",
+              "terminal": "gate",
+              "net": "in_b"
+            },
+            {
+              "device": "right",
+              "terminal": "source",
+              "net": "tail"
+            },
+            {
+              "device": "right",
+              "terminal": "drain",
+              "net": "stage_one"
+            },
+            {
+              "device": "second",
+              "terminal": "gate",
+              "net": "stage_one"
+            },
+            {
+              "device": "second",
+              "terminal": "drain",
+              "net": "stage_two"
+            },
+            {
+              "device": "second",
+              "terminal": "source",
+              "net": "second_source"
+            },
+            {
+              "device": "compensation",
+              "terminal": "p",
+              "net": "stage_one"
+            },
+            {
+              "device": "compensation",
+              "terminal": "n",
+              "net": "stage_two"
+            }
+          ],
+          "ports": [],
+          "distinct_nets": [
+            [
+              "in_a",
+              "in_b"
+            ],
+            [
+              "branch",
+              "stage_one"
+            ],
+            [
+              "in_a",
+              "branch"
+            ],
+            [
+              "in_a",
+              "stage_one"
+            ],
+            [
+              "in_b",
+              "branch"
+            ],
+            [
+              "in_b",
+              "stage_one"
+            ],
+            [
+              "in_a",
+              "tail"
+            ],
+            [
+              "in_b",
+              "tail"
+            ],
+            [
+              "branch",
+              "tail"
+            ],
+            [
+              "stage_one",
+              "tail"
+            ],
+            [
+              "stage_one",
+              "stage_two"
+            ],
+            [
+              "stage_one",
+              "second_source"
+            ],
+            [
+              "stage_two",
+              "second_source"
+            ]
+          ],
+          "net_conditions": [
+            {
+              "net": "in_a",
+              "condition": "not_rail"
+            },
+            {
+              "net": "in_b",
+              "condition": "not_rail"
+            },
+            {
+              "net": "tail",
+              "condition": "not_rail"
+            },
+            {
+              "net": "branch",
+              "condition": "not_rail"
+            },
+            {
+              "net": "stage_one",
+              "condition": "not_rail"
+            },
+            {
+              "net": "stage_two",
+              "condition": "not_rail"
+            }
+          ]
+        },
+        {
+          "devices": [
+            {
+              "alias": "left",
+              "type": "pmos"
+            },
+            {
+              "alias": "right",
+              "type": "pmos"
+            },
+            {
+              "alias": "second",
+              "type": "pmos"
+            },
+            {
+              "alias": "compensation",
+              "type": "capacitor"
+            }
+          ],
+          "nets": [
+            "in_a",
+            "in_b",
+            "tail",
+            "branch",
+            "stage_one",
+            "stage_two",
+            "second_source"
+          ],
+          "edges": [
+            {
+              "device": "left",
+              "terminal": "gate",
+              "net": "in_a"
+            },
+            {
+              "device": "left",
+              "terminal": "source",
+              "net": "tail"
+            },
+            {
+              "device": "left",
+              "terminal": "drain",
+              "net": "branch"
+            },
+            {
+              "device": "right",
+              "terminal": "gate",
+              "net": "in_b"
+            },
+            {
+              "device": "right",
+              "terminal": "source",
+              "net": "tail"
+            },
+            {
+              "device": "right",
+              "terminal": "drain",
+              "net": "stage_one"
+            },
+            {
+              "device": "second",
+              "terminal": "gate",
+              "net": "stage_one"
+            },
+            {
+              "device": "second",
+              "terminal": "drain",
+              "net": "stage_two"
+            },
+            {
+              "device": "second",
+              "terminal": "source",
+              "net": "second_source"
+            },
+            {
+              "device": "compensation",
+              "terminal": "p",
+              "net": "stage_one"
+            },
+            {
+              "device": "compensation",
+              "terminal": "n",
+              "net": "stage_two"
+            }
+          ],
+          "ports": [],
+          "distinct_nets": [
+            [
+              "in_a",
+              "in_b"
+            ],
+            [
+              "branch",
+              "stage_one"
+            ],
+            [
+              "in_a",
+              "branch"
+            ],
+            [
+              "in_a",
+              "stage_one"
+            ],
+            [
+              "in_b",
+              "branch"
+            ],
+            [
+              "in_b",
+              "stage_one"
+            ],
+            [
+              "in_a",
+              "tail"
+            ],
+            [
+              "in_b",
+              "tail"
+            ],
+            [
+              "branch",
+              "tail"
+            ],
+            [
+              "stage_one",
+              "tail"
+            ],
+            [
+              "stage_one",
+              "stage_two"
+            ],
+            [
+              "stage_one",
+              "second_source"
+            ],
+            [
+              "stage_two",
+              "second_source"
+            ]
+          ],
+          "net_conditions": [
+            {
+              "net": "in_a",
+              "condition": "not_rail"
+            },
+            {
+              "net": "in_b",
+              "condition": "not_rail"
+            },
+            {
+              "net": "tail",
+              "condition": "not_rail"
+            },
+            {
+              "net": "branch",
+              "condition": "not_rail"
+            },
+            {
+              "net": "stage_one",
+              "condition": "not_rail"
+            },
+            {
+              "net": "stage_two",
+              "condition": "not_rail"
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "hypotheses": [],
+  "hypothesis_rules": [
+    "mos_diff_pair"
+  ],
+  "semantic_text": "Two-stage Miller-compensated operational amplifier candidates with a differential input stage driving a common-source gain stage and a compensation capacitor spanning the stage outputs. Differential-pair wiring supports amplifier candidacy but can also occur in comparators; the complete connected signal-path witness is mandatory.",
+  "reference_id": "",
+  "unverified_requirements": [
+    {
+      "requirement": "Exactly two functional gain stages",
+      "reason": "The mandatory connected pattern identifies candidate stage connections but cannot establish the total functional stage count.",
+      "evidence_needed": "Reviewed full-circuit signal-path identification or stage annotations supported by operating-point and small-signal analysis."
+    },
+    {
+      "requirement": "Operational-amplifier behavior with differential input and common-source gain",
+      "reason": "Terminal connectivity alone does not establish valid bias, linear amplification, or suitability for feedback operation.",
+      "evidence_needed": "Device models, bias conditions, loads, and differential small-signal or transfer analysis."
+    },
+    {
+      "requirement": "Miller compensation",
+      "reason": "The capacitor between the candidate stage outputs is mandatory, but its presence does not prove pole splitting or stability.",
+      "evidence_needed": "Capacitance and device values, identified gain stages, and loop-gain or AC analysis under specified loading and feedback conditions."
+    }
+  ],
+  "clarification_questions": []
+}

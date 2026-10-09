@@ -1,5 +1,6 @@
 """Tool-free structured interpretation via existing local provider installations."""
 import json
+import re
 import http.client
 import os
 from pathlib import Path
@@ -17,6 +18,11 @@ from pydantic import ValidationError
 
 OLLAMA = "http://127.0.0.1:11434"
 MAX_OUTPUT = 200_000
+
+
+class ProviderFailure(ValueError):
+    def __init__(self,message,retryable=False):
+        super().__init__(message);self.retryable=retryable
 
 
 def converter_env(provider):
@@ -75,7 +81,10 @@ def run_process(command, prompt, cwd, env, cancel, timeout=180):
             answer = out.read(MAX_OUTPUT + 1).decode(errors="replace")
             if process.returncode:
                 # CLI diagnostics can contain account/config details: do not echo them.
-                raise ValueError("Provider CLI failed. Check its login, model access and supported isolation flags in a separate terminal.")
+                err.seek(0);diagnostics=err.read(MAX_OUTPUT).decode(errors='replace').lower()
+                transient=bool(re.search(r'stream disconnected|connection reset|connection closed|econnreset|connection timed out|502 bad gateway|503 service unavailable',diagnostics))
+                if transient:raise ProviderFailure('Provider connection was interrupted. Retry the request; no cloud fallback was used.',retryable=True)
+                raise ProviderFailure("Provider CLI failed. Check its login, model access and supported isolation flags in a separate terminal.")
             if len(answer.encode()) > MAX_OUTPUT:
                 raise ValueError("Model output exceeded the safety limit.")
             return answer
@@ -160,7 +169,13 @@ def transport(schema, prompt, provider, model, cancel):
         workspace = Path(folder)
         schema_path, answer_path = workspace / "schema.json", workspace / "answer.json"
         schema_path.write_text(json.dumps(schema))
-        output = run_process(cli_command(provider, workspace, model, schema_path, answer_path), prompt, workspace, converter_env(provider), cancel)
+        for attempt in range(2):
+            try:
+                output = run_process(cli_command(provider, workspace, model, schema_path, answer_path), prompt, workspace, converter_env(provider), cancel)
+                break
+            except ProviderFailure as exc:
+                if attempt or not exc.retryable:raise
+                if cancel.wait(.2):raise InterruptedError('Search cancelled.')
         if provider == "codex":
             if not answer_path.exists() or answer_path.stat().st_size > MAX_OUTPUT:
                 raise ValueError("Codex returned no bounded structured answer.")
@@ -176,6 +191,15 @@ def strict_schema(schema):
     # defaults still support convenient application-side construction.
     if isinstance(schema, dict):
         result = {k: strict_schema(v) for k, v in schema.items() if k != "default"}
+        # Structured-output providers do not accept JSON Schema prefixItems.
+        # Our fixed tuples are homogeneous (e.g. two distinct net aliases).
+        # Preserve their length/type contract using ordinary array items.
+        if 'prefixItems' in result:
+            members=result.pop('prefixItems')
+            if not members or any(member != members[0] for member in members):
+                raise ValueError('Structured output requires homogeneous tuple fields.')
+            result['items']=members[0]
+            result['minItems']=result['maxItems']=len(members)
         if result.get("type") == "object" and "properties" in result:
             result["required"] = list(result["properties"])
             result["additionalProperties"] = False

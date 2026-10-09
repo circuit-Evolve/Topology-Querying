@@ -59,3 +59,36 @@ def test_curated_embedded_mirror_does_not_replace_complete_quoted_pattern():
     model=grounded(text=text);model.required_blocks[0].name='Full amplifier with current mirror'
     result=ground_plan(text,model)
     assert any(b.source_quote==text for b in result.required_blocks)
+
+def test_compound_device_modifiers_are_not_discrete_device_counts():
+    p=ground_plan('Find an NMOS mirror with a diode-connected reference transistor',SearchPlan())
+    assert not any(c.entity=='diode' for c in p.count_constraints)
+
+def test_named_stage_count_needs_distinct_chained_signal_stages_not_an_atomic_pair():
+    text='Find a two-stage op-amp with a capacitor.'
+    p=ground_plan(text,SearchPlan())
+    assert p.clarification_questions
+
+def test_connected_signal_stage_assignment_can_ground_named_stage_count():
+    text='Find a two-stage op-amp with a capacitor.'
+    pattern=composite();pattern['signal_stages']=[{'devices':['a','b'],'input_nets':['in1','in2'],'output_nets':['first']},{'devices':['g'],'input_nets':['first'],'output_nets':['out']}]
+    result=ground_plan(text,grounded(text,pattern))
+    assert not result.clarification_questions and result.required_blocks
+    assert {c.net for c in result.required_blocks[0].alternatives[0].net_conditions if c.condition=='external'}>={'in1','in2','out'}
+
+def test_a_transistor_cannot_be_reused_as_two_distinct_stages():
+    pattern=composite();pattern['signal_stages']=[{'devices':['a'],'input_nets':['in1'],'output_nets':['first']},{'devices':['a'],'input_nets':['in1'],'output_nets':['first']}]
+    with pytest.raises(ValueError):GraphPattern.model_validate(pattern)
+
+def test_later_stage_output_cannot_be_an_earlier_gain_devices_output_node():
+    pattern=composite();pattern['signal_stages']=[{'devices':['a','b'],'input_nets':['in1','in2'],'output_nets':['first']},{'devices':['g'],'input_nets':['first'],'output_nets':['out']}]
+    for edge in pattern['edges']:
+        if edge['device']=='b' and edge['terminal']=='drain':edge['net']='out'
+    pattern['nets'].remove('other')
+    with pytest.raises(ValueError):GraphPattern.model_validate(pattern)
+
+def test_explicit_differential_input_cannot_be_reduced_to_one_control_input():
+    text='Find a two-stage amplifier with a differential input stage and a capacitor.'
+    pattern=composite();pattern['signal_stages']=[{'devices':['a'],'input_nets':['in1'],'output_nets':['first']},{'devices':['g'],'input_nets':['first'],'output_nets':['out']}]
+    p=ground_plan(text,grounded(text,pattern))
+    assert p.clarification_questions and not p.required_blocks

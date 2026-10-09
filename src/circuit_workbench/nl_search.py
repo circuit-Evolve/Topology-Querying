@@ -4,7 +4,7 @@ import operator
 import re
 import numpy as np
 from circuit_ingest.models import CircuitRecord
-from .nl_schema import NaturalRequest, SearchPlan, PrototypeBatch
+from .nl_schema import NaturalRequest, SearchPlan, PrototypeBatch, RECIPROCAL_TYPES
 from .nl_compiler import compile_query, GROUPS
 from .nl_providers import validated_generate
 from .uploads import parse_upload
@@ -27,7 +27,8 @@ gain/power/bandwidth and actual stage count go in unverified_requirements. Unkno
 x/y counts or contradictions require clarification_questions, never invented numbers.
 Generic devices/nets/terminal edges describe structure. Reusing a net alias means
 electrical equality. Different device aliases mean different devices. Net aliases
-may coincide unless distinct_nets explicitly forbids it. Require gate/input and
+always represent different physical nets; reuse one alias for intended shorts.
+Require gate/input and
 drain/output nets to differ when needed so diode-connected devices are not falsely
 interpreted as differential signal pairs. Ports bind exact stored names only: don't
 guess port names or hard-code VDD/VSS if not explicitly named by the user.
@@ -62,6 +63,16 @@ Partial graph hypotheses are only for inferred family guidance, not a substitute
 for mandatory patterns. Optional/preferences remain soft, negatives never positive.
 No invented property filters. A literal capacitor is required even without a count.
 All alternative mandatory patterns must independently satisfy the complete request.
+For a numbered stage request, every mandatory alternative MUST include signal_stages
+in order. Each stage lists its distinct gain-transistor aliases, input net aliases,
+and output net aliases; previous outputs must feed next inputs. Do not reuse a
+transistor as two stages. A differential pair is one stage, not two. Example:
+signal_stages: [{devices:[left,right],input_nets:[in_a,in_b],output_nets:[stage_one]},
+{devices:[second],input_nets:[stage_one],output_nets:[stage_two]}]. These refer to
+declared pattern aliases and real transistor contacts. Stage-count prompts require
+a complete mandatory pattern even if no terminal-level wording was supplied.
+The core checks the chain between external interfaces; this remains candidate
+signal-path evidence, not proof of operating gain or total operating stage count.
 Use net_conditions external for explicitly external terminals (without guessing
 names); not_rail on signal/tail nodes when interpreting differential input wiring.
 If a requested function/spec cannot be proven, disclose it as unverified separately
@@ -121,6 +132,7 @@ def pattern_witness(record, pattern, max_states=20000):
         if actual is None or (port.net in initial and initial[port.net] != actual):
             return None
         initial[port.net] = actual
+    if len(set(initial.values()))!=len(initial):return None
     states = 0
     def visit(index, used, bindings, device_map):
         nonlocal states
@@ -134,23 +146,20 @@ def pattern_witness(record, pattern, max_states=20000):
             if device.id in used:
                 continue
             terminals = {e.terminal: e.net_id for e in device.connections}
-            next_bindings = dict(bindings)
-            valid = True
-            for edge in edges[variable.alias]:
-                actual = terminals.get(edge.terminal)
-                if actual is None or (edge.net in next_bindings and next_bindings[edge.net] != actual):
-                    valid = False
-                    break
-                next_bindings[edge.net] = actual
-            if not valid or any(a in next_bindings and b in next_bindings and next_bindings[a] == next_bindings[b] for a, b in pattern.distinct_nets):
-                continue
-            if any(c.net in next_bindings and (
-                port_role(net_records[next_bindings[c.net]].name) in {'ground','supply'} if c.condition=='not_rail'
-                else not net_records[next_bindings[c.net]].is_external) for c in pattern.net_conditions):
-                continue
-            found = visit(index+1, used | {device.id}, next_bindings, {**device_map, variable.alias: {'name':device.source_instance,'id':device.id,'ordinal':device.ordinal}})
-            if found:
-                return found
+            for flip in ([False,True] if device.canonical_type in RECIPROCAL_TYPES else [False]):
+                terminal_map={t:('n' if t=='p' else 'p') if flip else t for t in terminals}
+                next_bindings = dict(bindings);valid = True
+                for edge in edges[variable.alias]:
+                    actual = terminals.get(terminal_map.get(edge.terminal,edge.terminal))
+                    if actual is None or (edge.net in next_bindings and next_bindings[edge.net] != actual):
+                        valid = False;break
+                    next_bindings[edge.net] = actual
+                if not valid or len(set(next_bindings.values()))!=len(next_bindings):continue
+                if any(c.net in next_bindings and (
+                    port_role(net_records[next_bindings[c.net]].name) in {'ground','supply'} if c.condition=='not_rail'
+                    else not net_records[next_bindings[c.net]].is_external) for c in pattern.net_conditions):continue
+                found=visit(index+1,used|{device.id},next_bindings,{**device_map,variable.alias:{'name':device.source_instance,'id':device.id,'ordinal':device.ordinal,'terminal_map':terminal_map}})
+                if found:return found
         return None
     found = visit(0, set(), initial, {})
     if found is None:
@@ -160,7 +169,7 @@ def pattern_witness(record, pattern, max_states=20000):
     names = {n.id: n.name for n in record.nets}
     return {"devices": devices, "device_ids":{alias:d['id'] for alias,d in matched_devices.items()},
             "device_ordinals":{alias:d['ordinal'] for alias,d in matched_devices.items()},"nets": {k: names[v] for k, v in bindings.items()},
-            "connections": [f"{devices[e.device]}.{e.terminal} → {names[bindings[e.net]]}" for e in pattern.edges]}
+            "connections": [f"{devices[e.device]}.{matched_devices[e.device]['terminal_map'][e.terminal]} → {names[bindings[e.net]]}" for e in pattern.edges]}
 
 
 def required_evidence(record,plan):

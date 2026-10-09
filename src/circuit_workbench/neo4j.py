@@ -12,9 +12,9 @@ from circuit_ingest.neo4j_store import replace_circuit
 from .retrieval import MODEL, VERSION
 
 
-def validate_cypher(query):
-    if not query.strip() or len(query) > 20000:
-        raise ValueError("Supply a Cypher query under 20,000 characters.")
+def validate_cypher(query, max_length=20000):
+    if not query.strip() or len(query) > max_length:
+        raise ValueError(f"Supply a Cypher query under {max_length:,} characters.")
     # Strip comments and literal strings before checking commands; EXPLAIN is the
     # authoritative second gate and rejects writes hidden by alternate syntax.
     code = re.sub(r"//[^\n]*|/\*[\s\S]*?\*/|'(?:\\.|[^'\\])*'|\"(?:\\.|[^\"\\])*\"|`[^`]*`", " ", query)
@@ -137,7 +137,7 @@ class Neo4jService:
 
     def candidate_query(self, text, parameters=None):
         """Internal scalar retrieval, independent of console/display graph caps."""
-        query = validate_cypher(text)
+        query = validate_cypher(text,max_length=100000)
         with self.driver.session(database=self.settings.neo4j_database, default_access_mode=READ_ACCESS) as session:
             with session.begin_transaction(timeout=10) as tx:
                 if tx.run("EXPLAIN " + query, parameters or {}).consume().query_type != "r":

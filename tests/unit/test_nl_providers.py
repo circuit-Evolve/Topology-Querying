@@ -4,6 +4,19 @@ import threading
 import pytest
 
 
+def test_structured_schema_encodes_fixed_homogeneous_tuples_as_supported_arrays():
+    from circuit_workbench.nl_providers import strict_schema
+    from circuit_workbench.nl_schema import SearchPlan
+    schema=strict_schema(SearchPlan.model_json_schema())
+    pair=schema['$defs']['GraphPattern']['properties']['distinct_nets']['items']
+    assert pair['items']['type']=='string'
+    import re
+    assert re.fullmatch(pair['items']['pattern'],'stage_one')
+    assert not re.fullmatch(pair['items']['pattern'],'unsafe alias')
+    assert pair['minItems']==pair['maxItems']==2
+    assert 'prefixItems' not in pair
+
+
 def test_converter_environment_excludes_database_and_project_secrets(monkeypatch):
     from circuit_workbench.nl_providers import converter_env
     monkeypatch.setenv("NEO4J_PASSWORD", "never-send")
@@ -46,6 +59,14 @@ def test_unavailable_group_probe_does_not_mask_timeout_or_skip_cleanup(tmp_path,
     monkeypatch.setattr(os,'killpg',restricted_probe)
     with pytest.raises(ValueError,match='timed out'):
         run_process([sys.executable,'-c','import time;time.sleep(60)'],'',tmp_path,{},threading.Event(),timeout=.1)
+
+
+def test_transient_cli_failure_is_classified_without_echoing_private_diagnostics(tmp_path):
+    from circuit_workbench.nl_providers import run_process
+    with pytest.raises(ValueError) as exc:
+        run_process([sys.executable,'-c',"import sys;sys.stderr.write('stream disconnected before completion: private-token-example');sys.exit(1)"],'',tmp_path,{},threading.Event())
+    assert getattr(exc.value,'retryable',False)
+    assert 'private-token-example' not in str(exc.value)
 
 
 @pytest.mark.skipif(sys.platform=='win32',reason='POSIX process groups')

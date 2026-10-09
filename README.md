@@ -142,13 +142,26 @@ the validated model plan; this is not a closed circuit-family menu. Smaller mode
 are not guaranteed frontier-level accuracy; identical validated plans do use the
 same query compiler and ranking regardless of provider.
 Model-inferred blocks stay hypotheses unless explicit positive containment can be
-grounded in curated wiring rules. Optional blocks do not filter results. Requests
+grounded in curated wiring rules, or a complete connected pattern is grounded in
+a verbatim quote covering all requested connections. Incomplete conversions ask
+for clarification instead of searching a weaker request. Numbered gain-stage
+requests require separate, ordered gain-device groups and connected signal
+interfaces; this is wiring evidence, not a simulation-certified stage count.
+Different pattern net aliases mean different physical nets; intentionally shared
+connections must reuse one alias. Resistors/capacitors/inductors match either
+terminal orientation. Both retrieval strategies enforce the same mandatory
+patterns against canonical records before ranking. Near misses are shown
+separately and never counted as full results. Optional blocks do not filter results. Requests
 for absence of a named block ask for clarification in V1 instead of reversing
 their meaning; the expert Cypher console supports explicit absence queries.
 
 For reproducible live checks, run `PYTHONPATH=src .venv/bin/python
 scripts/verify-natural-search.py --case mirror --strategy prototypes` as one
 terminal command. See [sampled result review](docs/search-evaluation.md).
+The newer [search-fidelity audit](docs/search-fidelity-evaluation.md) records
+multi-clause, two-stage, absent and near-match cases, including discovered failures.
+Run `PYTHONPATH=src .venv/bin/python scripts/audit-natural-search.py` to repeat
+the real-provider matrix; outputs are saved under ignored `output/search-fidelity`.
 
 ### Schematic studio
 

@@ -5,6 +5,7 @@ from circuit_ingest.registry import DEVICE_SPECS
 
 TERMINALS = {s.canonical_type: s.terminals for s in DEVICE_SPECS.values()}
 TERMINALS.update(voltage_source=("p", "n"), current_source=("p", "n"))
+RECIPROCAL_TYPES = frozenset({'resistor','capacitor','inductor'})
 DeviceType = Literal["nmos", "pmos", "npn", "pnp", "resistor", "capacitor", "inductor", "diode", "voltage_source", "current_source", "xor", "pfd", "inverter", "transmission_gate"]
 Entity = Literal["device", "transistor", "mos", "bjt", "port", "net", "nmos", "pmos", "npn", "pnp", "resistor", "capacitor", "inductor", "diode", "voltage_source", "current_source", "xor", "pfd", "inverter", "transmission_gate"]
 Alias = Annotated[str, Field(pattern=r"^[A-Za-z][A-Za-z0-9_]{0,31}$")]
@@ -36,6 +37,12 @@ class NetCondition(Contract):
     condition: Literal["not_rail", "external"]
 
 
+class SignalStage(Contract):
+    devices: list[Alias] = Field(min_length=1,max_length=16)
+    input_nets: list[Alias] = Field(min_length=1,max_length=4)
+    output_nets: list[Alias] = Field(min_length=1,max_length=4)
+
+
 class GraphPattern(Contract):
     devices: list[PatternDevice] = Field(min_length=1, max_length=16)
     nets: list[Alias] = Field(min_length=1, max_length=24)
@@ -43,6 +50,7 @@ class GraphPattern(Contract):
     ports: list[PortBinding] = Field(default_factory=list, max_length=24)
     distinct_nets: list[tuple[Alias, Alias]] = Field(default_factory=list, max_length=64)
     net_conditions: list[NetCondition] = Field(default_factory=list, max_length=24)
+    signal_stages: list[SignalStage] = Field(default_factory=list,max_length=5)
 
     @model_validator(mode="after")
     def consistent(self):
@@ -66,6 +74,19 @@ class GraphPattern(Contract):
             raise ValueError("Invalid distinct-net condition.")
         if any(c.net not in self.nets for c in self.net_conditions):
             raise ValueError("Net condition references an undeclared net.")
+        used=set();previous=None;prior_outputs=set()
+        for stage in self.signal_stages:
+            if len(set(stage.devices))!=len(stage.devices) or used.intersection(stage.devices):raise ValueError('Signal stages must use disjoint device groups.')
+            if any(d not in kinds or kinds[d] not in {'nmos','pmos','npn','pnp'} for d in stage.devices):raise ValueError('Active signal stages reference declared gain transistors only.')
+            if not set(stage.input_nets+stage.output_nets)<=set(self.nets) or set(stage.input_nets)&set(stage.output_nets):raise ValueError('Signal-stage input/output nets must be declared and distinct.')
+            inputs={e.net for e in self.edges if e.device in stage.devices and e.terminal in {'gate','base','source','emitter'}}
+            outputs={e.net for e in self.edges if e.device in stage.devices and e.terminal in {'drain','collector','source','emitter'}}
+            if not set(stage.input_nets)<=inputs or not set(stage.output_nets)<=outputs:raise ValueError('Stage signals must bind real transistor input/output terminals.')
+            if previous is not None and not previous.intersection(stage.input_nets):raise ValueError('Ordered signal stages must connect output to next input.')
+            if prior_outputs.intersection(stage.output_nets):raise ValueError('Later cascade outputs cannot be earlier gain-device output nodes (e.g. an active load).')
+            primary_roles={e.terminal for e in self.edges if e.device in stage.devices and e.net in stage.output_nets and e.terminal in {'drain','collector','source','emitter'}}
+            prior_outputs.update(e.net for e in self.edges if e.device in stage.devices and e.terminal in primary_roles)
+            used.update(stage.devices);previous=set(stage.output_nets)
         return self
 
 
