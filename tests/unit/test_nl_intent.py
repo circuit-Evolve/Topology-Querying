@@ -92,3 +92,51 @@ def test_explicit_differential_input_cannot_be_reduced_to_one_control_input():
     pattern=composite();pattern['signal_stages']=[{'devices':['a'],'input_nets':['in1'],'output_nets':['first']},{'devices':['g'],'input_nets':['first'],'output_nets':['out']}]
     p=ground_plan(text,grounded(text,pattern))
     assert p.clarification_questions and not p.required_blocks
+
+
+def test_complete_quote_cannot_hide_a_wrong_explicit_terminal_connection():
+    pattern=composite()
+    for edge in pattern['edges']:
+        if edge['device']=='g' and edge['terminal']=='gate':edge['net']='tail'
+    p=ground_plan(PROMPT,grounded(pattern=pattern))
+    assert p.clarification_questions and not p.required_blocks
+
+
+def test_complete_quote_cannot_hide_a_wrong_passive_endpoint():
+    pattern=composite();pattern['edges'][-2]['net']='tail'
+    p=ground_plan(PROMPT,grounded(pattern=pattern))
+    assert p.clarification_questions and not p.required_blocks
+
+
+def test_terminal_guard_is_not_specific_to_mos_or_the_audit_prompts():
+    text='Find a circuit with an NPN collector connected to a PNP base.'
+    pattern={'devices':[{'alias':'a','type':'npn'},{'alias':'b','type':'pnp'}],
+             'nets':['link','out'],'edges':[{'device':'a','terminal':'collector','net':'link'},
+             {'device':'b','terminal':'collector','net':'link'},{'device':'b','terminal':'base','net':'out'}]}
+    p=ground_plan(text,grounded(text,pattern))
+    assert p.clarification_questions and not p.required_blocks
+    pattern['edges'][-1]['net']='link';pattern['nets'].remove('out')
+    p=ground_plan(text,grounded(text,pattern))
+    assert not p.clarification_questions and p.required_blocks
+
+
+def test_optional_component_does_not_erase_mandatory_presence():
+    p=ground_plan('Find a circuit with a resistor and an optional capacitor.',SearchPlan())
+    assert {c.entity for c in p.count_constraints}=={'resistor'}
+
+
+def test_optional_component_does_not_erase_preceding_mandatory_wiring():
+    p=ground_plan('Find NMOS transistors sharing a source and an optional capacitor.',SearchPlan())
+    assert p.clarification_questions
+    assert any(c.entity=='nmos' for c in p.count_constraints)
+
+
+def test_preferred_stage_count_does_not_conflict_with_mandatory_stage_count():
+    from circuit_workbench.nl_intent import intent_audit
+    audit=intent_audit('Find a two-stage amplifier, preferably a three-stage amplifier.')
+    assert audit['signal_stage_count']==2 and not audit['ambiguous_stages']
+
+
+def test_optional_stage_count_does_not_become_a_hard_requirement():
+    from circuit_workbench.nl_intent import intent_audit
+    assert intent_audit('Find an amplifier, preferably two-stage.')['signal_stage_count'] is None

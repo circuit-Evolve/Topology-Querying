@@ -32,6 +32,20 @@ a live `invalid_json_schema` rejection. Failed calls remain failures, not empty
 successful searches. Only recognized connection failures get one same-provider
 retry; authentication/schema/unknown failures do not silently switch providers.
 
+Fresh final review found three additional edge cases, reproduced with failing
+tests before fixes: a complete quote hiding a wrong typed-terminal connection,
+"a resistor and an optional capacitor" erasing the resistor, and a preferred
+stage count overriding a mandatory one. The core now checks supported explicit
+typed-terminal connections/passive endpoints, scopes mixed optional phrases,
+and extracts stage counts only from positive mandatory clauses. An additional
+NPN/PNP regression verifies the terminal guard is not an op-amp/MOS-only recipe.
+These grammar checks are bounded; they are not a general English/electrical
+semantic proof. Unresolved explicit terminal pronouns ask for clarification.
+
+Audit prompts, gold IDs and corpus counterexamples are confined to test fixtures
+and this report. Runtime code does not load `search-audit.json` or
+`complex-search-plan.json`, and contains none of their expected circuit IDs.
+
 ## Case matrix and evidence
 
 Real Codex conversions were run for 14 initial cases, in both strategies where
@@ -96,6 +110,16 @@ review and real Neo4j integration supplement that shared dependency.
   still cannot replace family metadata/simulation.
 
 ## Repeat it
+
+Final verification: **265 Python tests passed, 19 skipped**, one existing
+Starlette/httpx deprecation warning; **18 Node UI tests passed**; the real Neo4j
+composite integration passed separately. All 15 captured cases passed the
+current structural audit. Original and near-miss prompts were rerun live after
+the review fixes; outcomes remained 884/926/2032 and zero full/five partials.
+Browser walkthrough verified original search, graph → schematic → netlist,
+zero-result state, expanded partial diagnostics, and successful-query history.
+Screenshots: `output/search-fidelity/884-inspection.png`,
+`two-stage-browser.png`, `near-miss-browser.png` (local, ignored evidence).
 
 Start Circuit Atlas/Neo4j normally. From the repository:
 

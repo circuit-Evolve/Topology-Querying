@@ -19,8 +19,8 @@ def normalized(text):
     return ' '.join(text.casefold().split())
 
 def intent_audit(text):
-    clauses=[c.strip() for c in re.split(r'[,;.!?]|\band\s+(?=(?:no|without|not|optional|preferably)\b)',text,flags=re.I) if c.strip()]
-    wiring=[];presence=set();negative_wiring=[]
+    clauses=[c.strip() for c in re.split(r'[,;.!?]|\band\s+(?=(?:an?\s+|the\s+)?(?:no|without|not|optional(?:ly)?|preferably)\b)',text,flags=re.I) if c.strip()]
+    wiring=[];presence=set();negative_wiring=[];positive=[]
     for clause in clauses:
         if OPTIONAL.search(clause):continue
         # Negative device counts are handled by the literal-count parser, not
@@ -28,6 +28,7 @@ def intent_audit(text):
         if NEGATIVE.search(clause):
             if WIRING.search(clause):negative_wiring.append(clause)
             continue
+        positive.append(clause)
         for entity,noun in NOUNS.items():
             for match in re.finditer(r'(?<!\w)(?:'+noun+r')(?!\w)',clause,re.I):
                 # A compound modifier is not a discrete component: e.g.
@@ -35,7 +36,7 @@ def intent_audit(text):
                 if not re.match(r'\s*[-–]?\s*(?:connected|coupled|loaded|input|based)\b',clause[match.end():],re.I):presence.add(entity)
         if WIRING.search(clause):wiring.append(clause)
     words={'one':1,'two':2,'three':3,'four':4,'five':5}
-    stage_counts={words.get(m.group(1).lower(),int(m.group(1)) if m.group(1).isdigit() else 0) for m in re.finditer(r'\b(\d+|one|two|three|four|five)[- ]+(?:gain\s+)?stages?\b(?!\s+(?:outputs?|inputs?|nodes?)\b)',text,re.I)}
+    stage_counts={words.get(m.group(1).lower(),int(m.group(1)) if m.group(1).isdigit() else 0) for m in re.finditer(r'\b(\d+|one|two|three|four|five)[- ]+(?:gain\s+)?stages?\b(?!\s+(?:outputs?|inputs?|nodes?)\b)','; '.join(positive),re.I)}
     return {'wiring':wiring,'presence':sorted(presence),'negative_wiring':negative_wiring,'signal_stage_count':next(iter(stage_counts)) if len(stage_counts)==1 else None,'ambiguous_stages':len(stage_counts)>1}
 
 def connected(pattern):
@@ -50,6 +51,49 @@ def connected(pattern):
         seen.add(node);todo+=list(adjacency[node]-seen)
     return len(seen)==len(adjacency)
 
+
+def explicit_terminals_valid(pattern,clauses):
+    """Check literal typed-terminal clauses, not named circuit recipes.
+
+    Resolve high-confidence device/terminal references and simple `that gate`
+    continuations. A quote cannot substitute for these physical connections.
+    Unresolved explicit pronouns fail closed rather than guessing their owner.
+    """
+    terminal=r'gate|drain|source|bulk|base|collector|emitter'
+    device=r'nmos(?:fet)?|pmos(?:fet)?|npn|pnp|mos(?:fet)?(?:\s+transistor)?|bjt|transistor'
+    reference=re.compile(r'\b(?:(?P<entity>'+device+r")\s*(?:['’]s)?\s+(?P<terminal>"+terminal+r')|(?P<pronoun>that|its)\s+(?P<referred>'+terminal+r')|and\s+(?:the\s+)?(?P<bare>'+terminal+r'))\b',re.I)
+    previous={}
+    for clause in clauses:
+        refs=[]
+        for match in reference.finditer(clause):
+            term=(match['terminal'] or match['referred'] or match['bare']).lower()
+            if match['entity']:
+                entity=match['entity'].lower().replace('fet','').split()[0]
+            elif match['bare']:
+                if not refs:continue
+                entity=refs[-1][0]
+            else:
+                entity=previous.get(term)
+                if entity is None:return False
+            previous[term]=entity;refs.append((entity,term))
+        if len(refs)<2:continue
+        choices=[{e.net for e in pattern.edges if e.terminal==term and any(d.alias==e.device and d.type in GROUPS.get(entity,[entity]) for d in pattern.devices)} for entity,term in refs]
+        if any(not nets for nets in choices):return False
+        if re.search(r'\bbetween\b',clause,re.I):
+            actors=[kind for kind in ('resistor','capacitor','inductor') if re.search(NOUNS[kind],clause,re.I)]
+            if not actors:return False
+            for kind in actors:
+                matched=False
+                for d in pattern.devices:
+                    if d.type!=kind:continue
+                    ends={e.terminal:e.net for e in pattern.edges if e.device==d.alias}
+                    a,b=ends.get('p'),ends.get('n')
+                    if a!=b and ((a in choices[0] and b in choices[1]) or (b in choices[0] and a in choices[1])):matched=True
+                if not matched:return False
+        elif re.search(r'\b(?:connected|tied|shared)\b',clause,re.I):
+            if not set.intersection(*choices):return False
+    return True
+
 def quote_patterns_valid(text,quote,patterns,audit):
     q=normalized(quote)
     if not q or q not in normalized(text) or not (audit['wiring'] or audit['signal_stage_count']):return False
@@ -62,6 +106,7 @@ def quote_patterns_valid(text,quote,patterns,audit):
     for pattern in patterns:
         if not connected(pattern) or (audit['signal_stage_count'] and len(pattern.signal_stages)!=audit['signal_stage_count']):return False
         if not all(any(d.type in GROUPS.get(e,[e]) for d in pattern.devices) for e in types):return False
+        if not explicit_terminals_valid(pattern,audit['wiring']):return False
         if differential and pattern.signal_stages:
             first=pattern.signal_stages[0]
             controls={edge.net for edge in pattern.edges if edge.device in first.devices and edge.terminal in {'gate','base'}}
