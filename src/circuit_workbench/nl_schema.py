@@ -96,6 +96,7 @@ class Hypothesis(Contract):
 
 class RequiredBlock(Contract):
     name: Annotated[str, Field(min_length=1, max_length=150)]
+    source_quote: Annotated[str, Field(max_length=6000)] = ""
     alternatives: list[GraphPattern] = Field(min_length=1, max_length=5)
 
 
@@ -112,6 +113,7 @@ class SearchPlan(Contract):
     count_constraints: list[CountConstraint] = Field(default_factory=list, max_length=20)
     property_constraints: list[PropertyConstraint] = Field(default_factory=list, max_length=10)
     required_pattern: GraphPattern | None = None
+    required_pattern_source: Annotated[str, Field(max_length=6000)] = ""
     required_blocks: list[RequiredBlock] = Field(default_factory=list, max_length=5)
     hypotheses: list[Hypothesis] = Field(default_factory=list, max_length=5)
     hypothesis_rules: list[Literal["mos_mirror", "mos_diff_pair", "bjt_mirror", "cascode_stack", "cross_coupled", "cmos_inverter", "rc_branch"]] = Field(default_factory=list, max_length=5)

@@ -118,20 +118,17 @@ def relevant_rules(text):
 
 def ground_plan(text, plan):
     plan=SearchPlan.model_validate(plan.model_dump())
-    # A provider-selected block is interpretation, not proof of a compulsory
-    # requirement. Curated explicit containment below is grounded independently.
-    for block in plan.required_blocks:
-        for pattern in block.alternatives:
-            if len(plan.hypotheses)<5:
-                plan.hypotheses.append(Hypothesis(interpretation='Model-inferred block: '+block.name,pattern=pattern))
-        plan.unverified_requirements.append(Unverified(requirement=block.name,reason='Provider-selected block retained as a hypothesis, not an independently grounded hard requirement.',evidence_needed='Explicit containment wording and curated wiring evidence or an explicit terminal-level pattern.'))
-    plan.required_blocks=[]
+    from .nl_intent import ground_structures
+    audit=ground_structures(text,plan)
     counts,questions=parse_counts(text)
     recognized={c.entity for c in counts}
     for c in plan.count_constraints:
         if c.entity not in recognized:
             questions.append(f"Cannot independently ground the {c.entity} count. Rephrase using e.g. 'at least 2 {c.entity}' with numerals and a supported device name.")
     plan.count_constraints=counts
+    for entity in audit['presence']:
+        if entity not in recognized:
+            plan.count_constraints.append(CountConstraint(entity=entity,operator='ge',value=1))
     plan.clarification_questions=list(dict.fromkeys(plan.clarification_questions+questions))
     references=re.findall(r'\b(?:similar\s+to|like|neighbou?rs\s+of)\s+(?:circuit\s+)?((?:analoggenie:)?\d+|uploaded:[a-f0-9-]+)\b',text.lower())
     if references:
@@ -149,9 +146,6 @@ def ground_plan(text, plan):
             else:
                 plan.unverified_requirements.append(Unverified(requirement=f'{prop.field}: {prop.value}',reason='This is not an explicit request for stored annotations. Sparse annotation fields cannot be used as assumed circuit facts.',evidence_needed='Reviewed annotations or independent functional evidence.'))
         plan.property_constraints=properties
-    if plan.required_pattern and not re.search(r'\b(?:connected|shared|tied|diode|stack|cross[- ]coupled|series|parallel)\b',text.lower()):
-        plan.hypotheses=([Hypothesis(interpretation='Model-inferred wiring; not explicitly required by the user.',pattern=plan.required_pattern)]+plan.hypotheses)[:5]
-        plan.required_pattern=None
     # Identical user text yields identical semantic input, irrespective of provider paraphrasing.
     plan.semantic_text=text[:2000]
     if RULEBOOK.exists():
@@ -193,7 +187,7 @@ def ground_plan(text, plan):
             if contains:
                 if patterns:
                     block=RequiredBlock(name='Current mirror' if generic_mirror else primitive["name"],alternatives=[GraphPattern.model_validate(p) for p in patterns[:5]])
-                    plan.required_blocks=[b for b in plan.required_blocks if b.name!=block.name and not ('mirror' in b.name.lower() and 'mirror' in block.name.lower())]+[block]
+                    plan.required_blocks=[b for b in plan.required_blocks if b.source_quote or (b.name!=block.name and not ('mirror' in b.name.lower() and 'mirror' in block.name.lower()))]+[block]
                 # Leave parent-function hypotheses intact: mirror containment is
                 # eligibility evidence, not a replacement for parent function.
             elif len(direct)==1 and not parents:
