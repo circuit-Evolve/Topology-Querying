@@ -97,7 +97,7 @@ def test_counts_checked_locally_again_before_ranking(tmp_path):
     assert meets_plan(rec, {}, plan)
 
 
-def test_search_filters_stale_graph_counts_and_returns_weaker_tier_without_vectors(tmp_path):
+def test_search_filters_stale_graph_counts_and_keeps_unsupported_matches_separate(tmp_path):
     import threading
     from tests.unit.test_workbench import catalog
     from circuit_workbench.retrieval import Retrieval
@@ -111,10 +111,10 @@ def test_search_filters_stale_graph_counts_and_returns_weaker_tier_without_vecto
             return {"rows": [] if "terminal0" in params else [{"circuit_id": "analoggenie:"+i} for i in ("1004", "1009", "2030")], "truncated": False}
     search = NaturalSearch(db, Neo(), Retrieval(db), generate=lambda *a: plan)
     result = search.run({"text": "amplifier with fewer than 17 transistors"}, threading.Event(), lambda s: None)
-    assert result["items"]
-    assert all(sum(c["statistics"]["device_type_counts"].get(k, 0) for k in ("nmos", "pmos", "npn", "pnp")) < 17 for c in result["items"])
-    assert all(c["tier"] == "hard-filter/text candidate" for c in result["items"])
-    assert any("No structural hypothesis" in w for w in result["warnings"])
+    assert result["items"]==[] and result['partial_items']
+    assert all(sum(c["statistics"]["device_type_counts"].get(k, 0) for k in ("nmos", "pmos", "npn", "pnp")) < 17 for c in result["partial_items"])
+    assert all(c['missing_requirements'] for c in result['partial_items'])
+    assert any("Near misses" in w for w in result["warnings"])
 
 
 def test_pattern_witness_rejects_diode_pair_misread_as_separate_inputs():

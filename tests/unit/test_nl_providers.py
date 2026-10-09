@@ -36,6 +36,18 @@ def test_owned_process_timeout_and_cancellation(tmp_path):
         run_process([sys.executable, "-c", "print('unused')"], "", tmp_path, {}, event)
 
 
+def test_unavailable_group_probe_does_not_mask_timeout_or_skip_cleanup(tmp_path,monkeypatch):
+    import os
+    from circuit_workbench.nl_providers import run_process
+    real=os.killpg
+    def restricted_probe(pid,sig):
+        if sig==0:raise PermissionError('group existence probe unavailable')
+        return real(pid,sig)
+    monkeypatch.setattr(os,'killpg',restricted_probe)
+    with pytest.raises(ValueError,match='timed out'):
+        run_process([sys.executable,'-c','import time;time.sleep(60)'],'',tmp_path,{},threading.Event(),timeout=.1)
+
+
 @pytest.mark.skipif(sys.platform=='win32',reason='POSIX process groups')
 def test_timeout_kills_owned_descendants_even_when_leader_exits(tmp_path):
     import os,signal,subprocess

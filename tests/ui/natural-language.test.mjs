@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {jobOutcome, searchPayload, scoreLabels, providerChoice, mountGuard, canSearch} from '../../src/circuit_workbench/static/natural-language.mjs';
+import {jobOutcome, searchPayload, scoreLabels, providerChoice, mountGuard, canSearch,naturalResultHTML} from '../../src/circuit_workbench/static/natural-language.mjs';
 
 test('failed and cancelled jobs never masquerade as empty successful searches',()=>{
   assert.equal(jobOutcome({state:'complete',result:{items:[]}}).result.items.length,0);
@@ -27,4 +27,8 @@ test('remounting a connected form invalidates older asynchronous updates',()=>{
 test('direct reference search does not need an available converter',()=>{
   assert.equal(canSearch({text:'',reference:'1004'},false),true);
   assert.equal(canSearch({text:'find comparator',reference:''},false),false);
+});
+test('near misses never appear as full results in the UI',()=>{
+  const html=naturalResultHTML({plan:{},strategy:'patterns',items:[],total:0,structural_matches:0,queries:[],warnings:[],partial_items:[{id:'x',title:'near miss',missing_requirements:['connected capacitor branch']}]});
+  assert.match(html,/0 candidates/);assert.match(html,/Near misses/);assert.match(html,/connected capacitor branch/);assert.doesNotMatch(html,/data-result-id="x"/);
 });

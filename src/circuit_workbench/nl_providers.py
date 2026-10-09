@@ -87,12 +87,11 @@ def run_process(command, prompt, cwd, env, cancel, timeout=180):
             except ProcessLookupError:
                 pass
             else:
-                deadline=time.monotonic()+2
-                while time.monotonic()<deadline:
-                    process.poll()
-                    try:os.killpg(process.pid,0)
-                    except ProcessLookupError:break
-                    time.sleep(.05)
+                try:process.wait(timeout=2)
+                except subprocess.TimeoutExpired:pass
+                # Do not use killpg(..., 0): macOS can reject the existence
+                # probe after the leader is reaped. Escalate owned descendants
+                # even if the leader exited; ESRCH simply means no group remains.
                 try:os.killpg(process.pid,signal.SIGKILL)
                 except ProcessLookupError:pass
             process.wait(timeout=2)
