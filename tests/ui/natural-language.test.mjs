@@ -70,6 +70,13 @@ test('rules-only selection is explicit and cannot silently request cloud convers
   assert.equal(p.interpretation,'rules_only');assert.equal(p.provider,'codex');
 });
 
+test('selecting any LLM explicitly requests model interpretation for a common prompt',()=>{
+  for(const provider of ['codex','ollama','claude']){
+    const p=searchPayload({text:'Find a two-stage amplifier',provider,strategy:'patterns',reference:'',limit:20});
+    assert.equal(p.interpretation,'llm');assert.equal(p.provider,provider);
+  }
+});
+
 test('prototype mode never advertises a model-free generation',()=>{
   const html=naturalResultHTML({interpreter:'deterministic rules',plan:{},strategy:'prototypes',items:[],total:0,structural_matches:0,queries:[],warnings:[],prototypes:[],prototype_diagnostics:[]});
   assert.match(html,/Prototype generation.*selected model/i);

@@ -209,7 +209,8 @@ class PrototypeBatch(Contract):
 class NaturalRequest(Contract):
     text: Annotated[str, Field(min_length=1, max_length=6000)]
     strategy: Literal["patterns", "prototypes"] = "patterns"
-    interpretation: Literal['auto', 'rules_only'] = 'auto'
+    # Legacy auto requests also use the selected LLM. No implicit no-model path.
+    interpretation: Literal['llm', 'auto', 'rules_only'] = 'llm'
     provider: Literal["codex", "ollama", "claude"] = "codex"
     model: Annotated[str, Field(max_length=150, pattern=r"^[A-Za-z0-9_.:/-]*$")] = ""
     reference_id: Annotated[str, Field(max_length=200)] = ""

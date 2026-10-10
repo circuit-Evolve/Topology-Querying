@@ -13,6 +13,38 @@ matching code; known IDs occur only as evaluation fixtures/counterexamples.
 
 ## Deterministic-core repair · 10 October 2026
 
+**Provider-routing correction:** the user requires an LLM-led demo. Selecting
+Codex/Ollama/Claude now always invokes the selected model to generate JSON, even
+for common prompts. The rules-only parser is opt-in, never an automatic shortcut.
+The ten-prompt matrix below is explicitly a **rules-only** run; it does not prove
+LLM conversion speed or fidelity. Validation, scoped Cypher and source guards
+remain shared. Default and legacy `auto` requests use the selected model; the UI
+explicitly sends `interpretation: "llm"`. Regression tests cover all three provider
+IDs, preservation of the actual model plan and propagation of provider failures.
+
+Fresh LLM demo runs through the installed `/usr/local/bin/codex`, with
+`gpt-5.6-sol` at high reasoning, were also captured after this correction:
+
+- The precise PMOS-input / NMOS-mirror-load / NMOS-output / direct-capacitor
+  request returned 9 eligible candidates, with 884 first. It made one actual
+  SearchPlan model call and took 102.65 seconds end-to-end.
+- `I'm looking for a two stage op amp` returned 123 eligible candidates and
+  displayed 20, led by 619, 978 and 300. It made one actual model call and took
+  146.80 seconds end-to-end. All 20 displayed records passed source count/witness
+  validation and a separately enumerated raw-terminal cascade check. Images for
+  619, 978, 316 and 1009 were reviewed: 1009 is a plausible fully differential
+  two-stage amplifier with common-mode feedback, not evidence of a third stage
+  merely because another transistor branch reaches a bias node.
+
+These real conversions are substantially slower than rules-only parsing. The
+selected model remains pinned to 5.6 Sol/high at the user's request. This sampled
+success is not a claim that every model conversion or broad circuit-family query
+is reliable, nor that electrical operation or performance is certified. The
+short prompt does not require capacitors or a particular polarity. Captures are
+kept locally in `llm-demo-*.json` and timestamped `run-*.json`; product code does
+not load them. Final routing regression run: 348 Python tests passed (22 gated
+tests skipped), and 26 Node UI tests passed.
+
 The ten exact researcher prompts were rerun through the visible browser with
 **Shared rules only · no model**, on the final repaired code. No converter or
 prototype-generation model call was needed. This is a fresh end-to-end run,
@@ -76,9 +108,10 @@ Known bias/clock/logic interface names cannot masquerade as primary analog input
 mirror-reference branches cannot create extra voltage-gain stages; regenerative
 output branches are conservatively rejected for linear-amplifier requests.
 
-The selected converter remains available for uncovered vocabulary/wiring, using
-the same schema, validation, compiler and ranker. Rules-only mode never silently
-calls it. Identical supported requests are model-independent on the fast path;
+After the provider-routing correction, the selected converter is used for every
+nonempty LLM-mode request, using the same schema, validation, compiler and ranker.
+Rules-only mode never silently calls it. Identical supported requests are
+model-independent only in the explicitly selected no-model mode;
 arbitrary free-form electrical reasoning is **not** guaranteed equally accurate
 across weaker and frontier models. Naming guards can reject unusual valid signal
 names; exotic positive-feedback, buffered, cascode and indirect signal paths may

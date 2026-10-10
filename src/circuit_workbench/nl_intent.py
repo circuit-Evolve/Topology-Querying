@@ -199,6 +199,22 @@ def ground_structures(text,plan):
             plan.required_pattern=None;plan.required_pattern_source=''
     if (audit['wiring'] or audit['signal_stage_count']) and not complete:
         plan.clarification_questions.append('The converter did not provide a complete connected pattern for all explicit wiring clauses. Rephrase the connections or retry another converter; no weakened search was executed.')
+    # Audit the model's own alternatives; never generate a replacement graph.
+    # Offering N-only and P-only chains silently imposes equality across stages
+    # when the request never specified it, excluding ordinary N/P cascades.
+    if linear and not re.search(r'\b(?:nmos|pmos|npn|pnp)\b|same[- ]polarity|same polarity',text,re.I):
+        for block in kept:
+            signatures=[]
+            for pattern in block.alternatives:
+                kinds={d.alias:d.type for d in pattern.devices}
+                stage_kinds=[{kinds[a] for a in stage.devices} for stage in pattern.signal_stages]
+                if len(stage_kinds)>=2 and all(len(k)==1 for k in stage_kinds):
+                    signatures.append(tuple(next(iter(k)) for k in stage_kinds))
+            for family in ({'nmos','pmos'},{'npn','pnp'}):
+                within=[s for s in signatures if set(s)<=family]
+                if len({k for s in within for k in s})==2 and all(len(set(s))==1 for s in within):
+                    plan.clarification_questions.append('Polarity coverage is incomplete for the complete connected pattern: the alternatives lock every signal stage to the same polarity although the request does not. Include independent mixed-polarity stage alternatives; do not drop counts or wiring.')
+                    break
     if audit['negative_wiring']:
         plan.clarification_questions.append('Negated wiring is not supported by the structural plan. Use an explicit absence Cypher query or rephrase positively.')
     if audit['ambiguous_stages'] or (audit['signal_stage_count'] is not None and not 1<=audit['signal_stage_count']<=5):plan.clarification_questions.append('Specify one signal-stage count between 1 and 5 for the bounded structural search.')

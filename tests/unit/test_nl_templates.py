@@ -7,6 +7,65 @@ from circuit_workbench.retrieval import Retrieval
 from tests.unit.test_nl_fidelity_search import setup
 
 
+@pytest.mark.parametrize('provider', ['codex', 'ollama', 'claude'])
+@pytest.mark.parametrize('interpretation', [None, 'auto', 'llm'])
+def test_selected_model_interprets_even_common_prompts_and_its_plan_is_used(tmp_path, provider, interpretation):
+    from tests.unit.test_nl_intent import composite
+    text = 'Find two-stage amplifier candidates with a capacitor and fewer than 9 transistors.'
+    pattern = composite()
+    pattern['signal_stages'] = [
+        {'devices': ['a', 'b'], 'input_nets': ['in1', 'in2'], 'output_nets': ['first']},
+        {'devices': ['g'], 'input_nets': ['first'], 'output_nets': ['out']},
+    ]
+    db, neo = setup(tmp_path, complete=True)
+    calls = []
+    def generate(contract, context, selected, model, cancel):
+        calls.append((selected, model))
+        return SearchPlan.model_validate({'requested_topology': 'Model-selected connected topology',
+            'required_blocks': [{'name': 'Model-connected signal path', 'source_quote': text, 'alternatives': [pattern]}]})
+    request = {'text': text, 'provider': provider, 'model': 'chosen-model'}
+    if interpretation is not None:
+        request['interpretation'] = interpretation
+    result = NaturalSearch(db, neo, Retrieval(db), generate).run(request, threading.Event(), lambda _: None)
+    assert calls == [(provider, 'chosen-model')]
+    assert result['interpreter'] == 'selected model'
+    assert result['plan']['requested_topology'] == 'Model-selected connected topology'
+    assert len(result['items']) == 1
+
+
+def test_model_failure_is_not_replaced_with_successful_python_interpretation(tmp_path):
+    db, neo = setup(tmp_path, complete=True)
+    def unavailable(*args):
+        raise ValueError('Selected converter unavailable')
+    with pytest.raises(ValueError, match='Selected converter unavailable'):
+        NaturalSearch(db, neo, Retrieval(db), unavailable).run(
+            {'text': 'Find two-stage amplifier candidates with a capacitor.'}, threading.Event(), lambda _: None)
+
+
+def test_same_polarity_model_lock_is_repaired_by_model_not_python(tmp_path):
+    from tests.unit.test_nl_intent import composite
+    text='Show me a two-stage op amp with fewer than 15 transistors.'
+    def pattern(kind=None):
+        p=composite()
+        if kind:
+            for d in p['devices']:
+                if d['type'] in {'nmos','pmos'}:d['type']=kind
+        p['signal_stages']=[{'devices':['a','b'],'input_nets':['in1','in2'],'output_nets':['first']},
+                            {'devices':['g'],'input_nets':['first'],'output_nets':['out']}]
+        return p
+    def plan(patterns):
+        return SearchPlan.model_validate({'required_blocks':[{'name':'Model stages','source_quote':text,'alternatives':patterns}]})
+    responses=iter([plan([pattern('nmos'),pattern('pmos')]),plan([pattern()])])
+    calls=[]
+    def generate(contract,context,provider,model,cancel):
+        calls.append(provider);return next(responses)
+    db,neo=setup(tmp_path,complete=True)
+    result=NaturalSearch(db,neo,Retrieval(db),generate).run({'text':text,'provider':'codex'},threading.Event(),lambda _:None)
+    assert calls==['codex','codex']
+    assert len(result['items'])==1 and result['interpreter']=='selected model'
+    assert not result.get('clarification_questions')
+
+
 @pytest.mark.parametrize('text', [
     'Find a two-stage amplifier with a capacitor between the two inputs.',
     'Find NMOS source followers with a gate connected to the output net.',
@@ -32,7 +91,7 @@ def test_common_structural_search_does_not_need_a_provider_or_installed_model(tm
         calls.append(args)
         return SearchPlan()
     result = NaturalSearch(db, neo, Retrieval(db), generate).run(
-        {'text': 'Find two-stage amplifier candidates with a capacitor and fewer than 9 transistors.', 'provider': provider},
+        {'text': 'Find two-stage amplifier candidates with a capacitor and fewer than 9 transistors.', 'provider': provider, 'interpretation': 'rules_only'},
         threading.Event(), lambda _: None)
     assert calls == []
     assert len(result['items']) == 1
@@ -117,7 +176,7 @@ def test_complete_three_stage_variants_fit_owned_query_budget_without_dropping_a
         return original(query, parameters)
     neo.candidate_query = checked
     result = NaturalSearch(db, neo, Retrieval(db), lambda *args: SearchPlan()).run(
-        {'text': 'Find a three-stage amplifier with a differential input stage feeding two common-source gain stages and at least 2 capacitors.'},
+        {'text': 'Find a three-stage amplifier with a differential input stage feeding two common-source gain stages and at least 2 capacitors.', 'interpretation': 'rules_only'},
         threading.Event(), lambda _: None)
     assert result['interpreter'] == 'deterministic rules'
     assert len(result['plan']['required_blocks'][0]['alternatives']) == 16
@@ -134,7 +193,7 @@ def test_hard_cypher_is_scoped_to_exact_canonical_candidates_not_the_whole_corpu
         return original(query, parameters)
     neo.candidate_query = capture
     result = NaturalSearch(db, neo, Retrieval(db), lambda *args: SearchPlan()).run(
-        {'text': 'Find a two-stage amplifier with a compensation capacitor between the stage outputs and fewer than 9 transistors.'},
+        {'text': 'Find a two-stage amplifier with a compensation capacitor between the stage outputs and fewer than 9 transistors.', 'interpretation': 'rules_only'},
         threading.Event(), lambda _: None)
     assert len(result['items']) == 1
     assert params_seen[0]['eligible_ids'] == [result['items'][0]['id']]
@@ -145,7 +204,7 @@ def test_stage_preference_does_not_become_required_during_actual_search(tmp_path
     one = 'M1 (ref INP tail VSS) nmos4\nM2 (OUT INN tail VSS) nmos4\nM3 (ref ref VDD VDD) pmos4\nM4 (OUT ref VDD VDD) pmos4'
     db.add_upload(parse_upload(one, 'single-stage with mirror', 'INP INN OUT VDD VSS'), one, {'description': 'fixture'})
     result = NaturalSearch(db, neo, Retrieval(db), lambda *args: SearchPlan()).run(
-        {'text': 'Find differential amplifiers containing a current mirror with fewer than 6 transistors. Preferably use two stages.'},
+        {'text': 'Find differential amplifiers containing a current mirror with fewer than 6 transistors. Preferably use two stages.', 'interpretation': 'rules_only'},
         threading.Event(), lambda _: None)
     assert len(result['items']) == 1
     assert db.row(result['items'][0]['id'])['netlist'] == one

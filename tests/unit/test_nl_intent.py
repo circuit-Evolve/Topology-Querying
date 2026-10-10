@@ -76,6 +76,35 @@ def test_connected_signal_stage_assignment_can_ground_named_stage_count():
     assert not result.clarification_questions and result.required_blocks
     assert {c.net for c in result.required_blocks[0].alternatives[0].net_conditions if c.condition=='external'}>={'in1','in2','out'}
 
+
+def test_unrequested_equality_between_stage_polarities_is_not_silent():
+    text='Show me a two-stage op amp with fewer than 15 transistors.'
+    patterns=[]
+    for kind in ('nmos','pmos'):
+        pattern=composite()
+        for device in pattern['devices']:
+            if device['type'] in {'nmos','pmos'}:device['type']=kind
+        pattern['signal_stages']=[{'devices':['a','b'],'input_nets':['in1','in2'],'output_nets':['first']},
+                                 {'devices':['g'],'input_nets':['first'],'output_nets':['out']}]
+        patterns.append(pattern)
+    raw=SearchPlan.model_validate({'required_blocks':[{'name':'Model stage alternatives','source_quote':text,'alternatives':patterns}]})
+    result=ground_plan(text,raw)
+    assert any('polarity' in q.lower() for q in result.clarification_questions)
+
+
+def test_explicit_same_polarity_request_is_not_a_missing_variant():
+    text='Find a two-stage amplifier using the same polarity in both stages.'
+    patterns=[]
+    for kind in ('nmos','pmos'):
+        pattern=composite()
+        for device in pattern['devices']:
+            if device['type'] in {'nmos','pmos'}:device['type']=kind
+        pattern['signal_stages']=[{'devices':['a','b'],'input_nets':['in1','in2'],'output_nets':['first']},
+                                 {'devices':['g'],'input_nets':['first'],'output_nets':['out']}]
+        patterns.append(pattern)
+    raw=SearchPlan.model_validate({'required_blocks':[{'name':'Same-polarity stages','source_quote':text,'alternatives':patterns}]})
+    assert not ground_plan(text,raw).clarification_questions
+
 def test_a_transistor_cannot_be_reused_as_two_distinct_stages():
     pattern=composite();pattern['signal_stages']=[{'devices':['a'],'input_nets':['in1'],'output_nets':['first']},{'devices':['a'],'input_nets':['in1'],'output_nets':['first']}]
     with pytest.raises(ValueError):GraphPattern.model_validate(pattern)

@@ -11,7 +11,7 @@ export function jobOutcome(job){
 }
 export function searchPayload(state){
   const ref=String(state.reference||'').trim();
-  return {text:state.text.trim(),strategy:state.strategy||'patterns',provider:state.provider==='rules'?'codex':state.provider||'codex',model:state.provider==='rules'?'':state.model||'',...(state.provider==='rules'?{interpretation:'rules_only'}:{}),reference_id:/^\d+$/.test(ref)?'analoggenie:'+ref:ref,limit:Number(state.limit||20)};
+  return {text:state.text.trim(),strategy:state.strategy||'patterns',provider:state.provider==='rules'?'codex':state.provider||'codex',model:state.provider==='rules'?'':state.model||'',interpretation:state.provider==='rules'?'rules_only':'llm',reference_id:/^\d+$/.test(ref)?'analoggenie:'+ref:ref,limit:Number(state.limit||20)};
 }
 export function scoreLabels(c){
   return [['pattern_coverage','PATTERN COVERAGE'],['structural_score','FULL PATTERN'],['topology_score','PROTOTYPE COSINE'],['reference_score','REFERENCE SCORE'],['semantic_score','TEXT COSINE']].filter(([key])=>c[key]!=null).map(([key,label])=>[Number(c[key]).toFixed(3),label]);
@@ -37,7 +37,10 @@ export async function mountNatural(root,{state,persist,api,onResult,onReferenceO
     state.provider=$(root,'#natural-provider').value;state.model=$(root,'#natural-model').value;
     state.limit=Number($(root,'#natural-limit').value);persist();$(root,'#run-natural').disabled=!canSearch(state,providerReady);
   };
-  const strategyNote=()=>{$(root,'#strategy-note').textContent=state.strategy==='prototypes'?'Experimental: the model invents retrieval anchors, not proven designs. Only real dataset circuits are returned. Invalid or duplicate anchors are disclosed.':'Shared rules handle common structures; your selected converter handles custom intent. Both compile validated JSON to read-only Cypher. Function remains unverified.';};
+  const strategyNote=()=>{
+    $(root,'[data-strategy="patterns"] span').textContent=state.provider==='rules'?'Rules-only → JSON → structural Cypher':'LLM → JSON → structural Cypher';
+    $(root,'#strategy-note').textContent=state.strategy==='prototypes'?'Experimental: the selected LLM interprets the request and invents retrieval anchors, not proven designs. Only real dataset circuits are returned. Invalid or duplicate anchors are disclosed.':state.provider==='rules'?'Explicit no-model parser for supported structures only. Choose Codex, Ollama or Claude for LLM interpretation.':'Your selected LLM generates the JSON plan using the electrical rulebook. The shared core validates it and compiles read-only Cypher. No Python interpretation replaces the model.';
+  };
   strategyNote();
   root.querySelectorAll('[data-strategy]').forEach(button=>button.onclick=()=>{state.strategy=button.dataset.strategy;root.querySelectorAll('[data-strategy]').forEach(b=>b.classList.toggle('selected',b===button));strategyNote();save();});
   for(const id of ['natural-prompt','reference-circuit','natural-model','natural-limit'])$(root,'#'+id).addEventListener('input',save);
@@ -81,7 +84,7 @@ export async function mountNatural(root,{state,persist,api,onResult,onReferenceO
     const select=$(root,'#natural-provider');const current=state.provider||'codex';
     select.innerHTML=data.providers.map(p=>`<option value="${p.id}" ${!p.available?'disabled':''}>${esc(p.name)}${p.available?'':' · unavailable'}</option>`).join('');
     select.value=current;
-    const update=()=>{const p=providerChoice(select.value,data.providers);providerReady=p.available;state.provider=p.id;$(root,'#provider-note').textContent=(!p.available?'Selected provider is unavailable; choose another explicitly. ':'')+(p.remote?'Cloud conversion: your prompt/schema goes to this provider; normal account usage applies. ':'')+p.note;$(root,'#natural-models').innerHTML=(p.models||[]).map(m=>`<option value="${esc(m)}"></option>`).join('');if(p.id==='ollama'&&p.available&&!p.models.includes($(root,'#natural-model').value))$(root,'#natural-model').value=p.models[0]||'';save();};
+    const update=()=>{const p=providerChoice(select.value,data.providers);providerReady=p.available;state.provider=p.id;$(root,'#provider-note').textContent=(!p.available?'Selected provider is unavailable; choose another explicitly. ':'')+(p.remote?'Cloud conversion: your prompt/schema goes to this provider; normal account usage applies. ':'')+p.note;$(root,'#natural-models').innerHTML=(p.models||[]).map(m=>`<option value="${esc(m)}"></option>`).join('');if(p.id==='ollama'&&p.available&&!p.models.includes($(root,'#natural-model').value))$(root,'#natural-model').value=p.models[0]||'';strategyNote();save();};
     select.onchange=()=>{$(root,'#natural-model').value='';update();};update();
   }catch(error){if(isCurrent()){$(root,'#provider-note').textContent=error.message;run.disabled=!canSearch(state,false);}}
 }
@@ -95,7 +98,7 @@ function fullResultHTML(data){
 }
 
 export function naturalResultHTML(data){
-  const provenance=data.interpreter==='deterministic rules'?(data.strategy==='prototypes'?'<p class="result-note">Shared structural rules interpret the query. Prototype generation uses the selected model when there are eligible candidates.</p>':'<p class="result-note">Shared structural rules · no converter model call. Custom requests use your selected converter.</p>'):data.interpreter?'<p class="result-note">Selected converter interpretation · checked by the shared structural core.</p>':'';
+  const provenance=data.interpreter==='deterministic rules'?(data.strategy==='prototypes'?'<p class="result-note">Shared structural rules interpret the query. Prototype generation uses the selected model when there are eligible candidates.</p>':'<p class="result-note">Shared structural rules · no converter model call. Explicit rules-only mode.</p>'):data.interpreter?'<p class="result-note">LLM-generated JSON · validated and compiled by the shared structural core.</p>':'';
   const emptyNote=!data.items?.length&&!data.clarification_questions?.length?'<p class="result-note">No supported structural match is not proof of absence from the dataset. Inspect the interpretation and coverage; unusual topologies may need a custom structural query.</p>':'';
   const full=provenance+emptyNote+fullResultHTML(data),partials=data.partial_items||[];
   if(data.clarification_questions?.length||!partials.length)return full;

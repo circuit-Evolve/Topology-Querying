@@ -154,14 +154,21 @@ A direct reciprocal gate–drain/base–collector regenerative branch is not cou
 as an extra feedforward gain stage. This is a conservative wiring proxy, not a
 general analysis of feedback or operating gain.
 
-**Shared structural rules:** common differential-pair/degeneration, mirror/cascode,
-source-follower, sequential gain-stage and regenerative/clocked-comparator requests
-now have a deterministic interpreter before any converter call. Counts, polarity,
-mandatory wiring and optional preferences compose into the same validated JSON
-contract. Choose **Shared rules only · no model** to prohibit model fallback.
-Unknown vocabulary or uncovered wiring requires your explicitly selected converter;
-rules-only mode instead reports that it cannot fully interpret the request. This
-bounded grammar is not a general electrical-language parser.
+**LLM interpretation:** selecting Codex, Ollama or Claude always sends a nonempty
+natural-language request to that selected model. The electrical rulebook guides
+its JSON plan; deterministic validation, counts/wiring guards, Cypher compilation
+and ranking follow. No Python interpretation replaces a selected model, even for
+common requests. Provider failures remain failures; there is no silent no-model
+or cloud-provider fallback. Codex CLI launches the executable installed on the
+server machine using its existing login; inference is still remote. Ollama uses
+an installed local model; Claude uses the installed Claude Code CLI.
+
+**Optional rules-only mode:** **Shared rules only · no model** separately invokes
+a bounded deterministic grammar for common differential-pair/degeneration,
+mirror/cascode, follower, gain-stage and clocked-comparator requests. It is never
+automatically selected for an LLM request. Uncovered wiring reports an unsupported
+request rather than calling a model. Reference-only topology similarity remains
+model-free when the prompt is blank.
 
 For common requests, canonical source witnesses narrow the candidate IDs before
 Neo4j checks the full constraints in bounded alternative batches. This avoids
@@ -171,12 +178,13 @@ mirror-reference branches counted as gain stages, and regenerative amplifier
 outputs have additional conservative guards. Source scans still grow with corpus
 size; the repaired live audit covers 3,352 records, not a 10k scaling benchmark.
 
-**Accuracy status:** the repaired ten-prompt browser run completed without timeouts;
+**Accuracy status:** the repaired ten-prompt **rules-only** browser run completed without timeouts;
 all 102 displayed result instances passed count and raw-terminal checks. Previously
 observed logic-latch/comparator false positives were excluded, and optional stage
 preferences now affect ranking rather than eligibility. This is sampled structural
 validation, not certification of circuit family, operating stage count, gain or
-stability. The strict three-stage prompt returns no supported structural match,
+stability. Those timings/results are not an LLM demo benchmark. The strict
+three-stage prompt returns no supported structural match,
 not proof of corpus absence. See the
 [repair results and coverage limits](docs/search-fidelity-evaluation.md#deterministic-core-repair--10-october-2026).
 Different pattern net aliases mean different physical nets; intentionally shared

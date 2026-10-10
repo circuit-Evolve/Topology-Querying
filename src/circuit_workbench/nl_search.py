@@ -89,6 +89,11 @@ it does not prove a waveform. Do not substitute any arbitrary external bias.
 Do not invent an unspecified device polarity or extra separate rail. Prefer
 minimal constraints and complete alternatives for unspecified polarities. Shared
 supplies must reuse one alias; independently named supply aliases cannot collapse.
+Stage polarities are independent unless the request ties them together. For an
+unqualified two-stage MOS amplifier, include NMOS-input/NMOS-gain,
+NMOS-input/PMOS-gain, PMOS-input/NMOS-gain, and PMOS-input/PMOS-gain alternatives.
+Do not offer only all-NMOS, all-PMOS, all-NPN and all-PNP chains: that omits common
+mixed-polarity amplifiers. Respect any explicitly specified stage/device type.
 Leave unrequested output-stage source/bulk terminals unbound when the request
 only requires an internal signal to drive a distinct output gain transistor.
 Otherwise a gratuitous separate source alias excludes valid shared-supply stages.
@@ -281,14 +286,16 @@ class NaturalSearch:
         request = NaturalRequest.model_validate(request)
         if request.interpretation=='rules_only' and request.strategy=='prototypes':
             raise ValueError('Shared rules do not generate temporary netlists. Choose a configured converter for prototype generation; no model call was made.')
-        from .nl_templates import deterministic_plan
-        progress('checking shared structural rules')
-        plan = deterministic_plan(request.text)
-        interpreter = 'deterministic rules' if plan is not None else 'selected model'
-        if plan is None:
-            if request.interpretation=='rules_only':
+        if request.interpretation=='rules_only':
+            from .nl_templates import deterministic_plan
+            progress('interpreting with explicit rules-only parser')
+            plan = deterministic_plan(request.text)
+            interpreter = 'deterministic rules'
+            if plan is None:
                 raise ValueError('Shared rules cannot fully interpret this request. Choose a converter for custom intent; no model call was made.')
-            progress("interpreting custom requirements")
+        else:
+            interpreter = 'selected model'
+            progress(f'interpreting request with {request.provider} LLM')
             rules = relevant_rules(request.text)
             context=PLAN_CONTEXT + "\nCurated electrical search rulebook (follow its evidence limits):\n" + json.dumps(rules,separators=(',',':'))+"\nIndependent explicit intent audit:\n"+json.dumps(intent_audit(request.text))+"\nUser request:\n"+request.text
             plan = ground_plan(request.text, self.generate(SearchPlan, context, request.provider, request.model, cancel))
@@ -355,7 +362,7 @@ class NaturalSearch:
         missing = len(ids) - len(candidates) - rejected
         warnings = []
         if interpreter == 'deterministic rules':
-            warnings.append('Common structural request interpreted by shared rules; no query-conversion model call. Prototype generation still uses the selected provider when requested. Coverage is conservative, not electrical certification.')
+            warnings.append('Explicit rules-only interpretation; no query-conversion model call. Coverage is conservative, not electrical certification.')
         if eligible_response.get("truncated"):
             warnings.append("Eligible pool exceeded 10,000 circuits; ranking uses the explicitly capped pool.")
         if rejected or missing:
