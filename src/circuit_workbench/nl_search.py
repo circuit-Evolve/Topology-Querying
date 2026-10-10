@@ -4,8 +4,8 @@ import operator
 import re
 import numpy as np
 from circuit_ingest.models import CircuitRecord
-from .nl_schema import NaturalRequest, SearchPlan, PrototypeBatch, RECIPROCAL_TYPES, NET_ROLE_NAMES, CLOCK_NAME_PATTERN, stage_feedback_constraints
-from .nl_compiler import compile_query, GROUPS
+from .nl_schema import NaturalRequest, SearchPlan, PrototypeBatch, RECIPROCAL_TYPES, NET_ROLE_NAMES, CLOCK_NAME_PATTERN, NON_SIGNAL_NAME_PATTERN, stage_feedback_constraints, stage_gain_constraints
+from .nl_compiler import compile_query, compile_queries, GROUPS
 from .nl_providers import validated_generate
 from .uploads import parse_upload
 from .topology import topology_profile, topology_vector, structural_similarity, VERSION, port_role
@@ -156,6 +156,7 @@ def pattern_witness(record, pattern, max_states=20000):
     if len(set(initial.values()))!=len(initial):return None
     states = 0
     folds=stage_feedback_constraints(pattern)
+    mirror_inputs=stage_gain_constraints(pattern)
     reverse_contacts=set()
     for d in record.devices:
         if d.canonical_type not in {'nmos','pmos','npn','pnp'}:continue
@@ -166,6 +167,12 @@ def pattern_witness(record, pattern, max_states=20000):
         nonlocal states
         if index == len(order):
             if any((kind,bindings[b],bindings[a]) in reverse_contacts for kind,_,_,a,b in folds):return None
+            if any((kind,bindings[n],bindings[n]) in reverse_contacts for kind,_,_,n in mirror_inputs):return None
+            for condition in pattern.net_conditions:
+                if condition.condition != 'linear_output':continue
+                node=bindings[condition.net]
+                if any(out==node and control!=node and (kind,out,control) in reverse_contacts
+                       for kind,control,out in reverse_contacts):return None
             return device_map, bindings
         if states >= max_states:
             return None
@@ -188,6 +195,8 @@ def pattern_witness(record, pattern, max_states=20000):
                     if c.net not in next_bindings:return False
                     net=net_records[next_bindings[c.net]]
                     if c.condition=='external':return not net.is_external
+                    if c.condition=='linear_output':return False
+                    if c.condition=='signal':return net.name.upper() in NET_ROLE_NAMES['rail'] or bool(re.fullmatch(NON_SIGNAL_NAME_PATTERN,net.name.upper()))
                     if c.condition=='clock_named':return not re.fullmatch(CLOCK_NAME_PATTERN,net.name.upper())
                     if c.condition=='not_rail':return net.name.upper() in NET_ROLE_NAMES['rail']
                     return net.name.upper() not in NET_ROLE_NAMES[c.condition]
@@ -253,8 +262,8 @@ def meaningful_context(row):
     return bool(re.search(r"[A-Za-z]{3,}", annotation + " " + source))
 
 
-def coverage_score(matches, required_witness, device_count):
-    witnesses = [m["witness"] for m in matches] + ([required_witness] if required_witness else [])
+def coverage_score(matches, required_witness, device_count, block_witnesses=()):
+    witnesses = [m["witness"] for m in matches] + [b['witness'] for b in block_witnesses] + ([required_witness] if required_witness else [])
     return max((len(set(w.get('device_ids',w['devices']).values())) / device_count for w in witnesses), default=0.0)
 
 
@@ -270,21 +279,29 @@ class NaturalSearch:
 
     def run(self, request, cancel, progress):
         request = NaturalRequest.model_validate(request)
-        progress("interpreting requirements")
-        rules = relevant_rules(request.text)
-        context=PLAN_CONTEXT + "\nCurated electrical search rulebook (follow its evidence limits):\n" + json.dumps(rules)+"\nIndependent explicit intent audit:\n"+json.dumps(intent_audit(request.text))+"\nUser request:\n"+request.text
-        plan = self.generate(SearchPlan, context, request.provider, request.model, cancel)
-        plan = ground_plan(request.text, plan)
-        if any('complete connected pattern' in q for q in plan.clarification_questions):
-            progress('repairing incomplete structural interpretation')
-            plan=ground_plan(request.text,self.generate(SearchPlan,context+'\nThe core rejected the previous interpretation: '+json.dumps(plan.clarification_questions)+'\nPreserve the entire explicit structure in one connected mandatory pattern; quote the entire request. Do not relax it.',request.provider,request.model,cancel))
+        if request.interpretation=='rules_only' and request.strategy=='prototypes':
+            raise ValueError('Shared rules do not generate temporary netlists. Choose a configured converter for prototype generation; no model call was made.')
+        from .nl_templates import deterministic_plan
+        progress('checking shared structural rules')
+        plan = deterministic_plan(request.text)
+        interpreter = 'deterministic rules' if plan is not None else 'selected model'
+        if plan is None:
+            if request.interpretation=='rules_only':
+                raise ValueError('Shared rules cannot fully interpret this request. Choose a converter for custom intent; no model call was made.')
+            progress("interpreting custom requirements")
+            rules = relevant_rules(request.text)
+            context=PLAN_CONTEXT + "\nCurated electrical search rulebook (follow its evidence limits):\n" + json.dumps(rules,separators=(',',':'))+"\nIndependent explicit intent audit:\n"+json.dumps(intent_audit(request.text))+"\nUser request:\n"+request.text
+            plan = ground_plan(request.text, self.generate(SearchPlan, context, request.provider, request.model, cancel))
+            if any('complete connected pattern' in q for q in plan.clarification_questions):
+                progress('repairing incomplete structural interpretation')
+                plan=ground_plan(request.text,self.generate(SearchPlan,context+'\nThe core rejected the previous interpretation: '+json.dumps(plan.clarification_questions)+'\nPreserve the entire explicit structure in one connected mandatory pattern; quote the entire request. Do not relax it.',request.provider,request.model,cancel))
         reference = resolve_reference(request.reference_id)
         planned_reference = resolve_reference(plan.reference_id)
         if reference and planned_reference and reference != planned_reference:
             plan.clarification_questions.append("The prompt and picker refer to different circuits. Which reference should be used?")
         reference = reference or planned_reference
         if plan.clarification_questions:
-            return {"mode": "natural", "strategy": request.strategy, "items": [], "total": 0, "plan": plan.model_dump(), "clarification_questions": plan.clarification_questions, "queries": [], "request": request.model_dump(), "warning": "No search executed: clarification needed."}
+            return {"mode": "natural", "strategy": request.strategy, "interpreter": interpreter, "items": [], "total": 0, "plan": plan.model_dump(), "clarification_questions": plan.clarification_questions, "queries": [], "request": request.model_dump(), "warning": "No search executed: clarification needed."}
         if reference:
             try:
                 reference_record = self.catalog.record(reference)
@@ -292,34 +309,53 @@ class NaturalSearch:
                 raise ValueError("The requested reference circuit does not exist.") from exc
         else:
             reference_record = None
-        progress("querying hard requirements")
-        query, params = compile_query(plan)
-        eligible_response = self.neo.candidate_query(query, params)
-        ids = {r["circuit_id"] for r in eligible_response["rows"]}
-        ids.discard(reference)
-        queries = [{"purpose": "Hard requirements", "cypher": query, "parameters": params}]
+        progress('verifying canonical netlist requirements')
         with self.catalog.connect() as db:
             rows = db.execute("""SELECT c.*,v.semantic,v.topology,v.descriptor_version FROM circuits c
                 LEFT JOIN vectors v ON c.id=v.id AND c.revision=v.revision ORDER BY c.id""").fetchall()
+        source_cache={}
+        for row in rows:
+            if cancel.is_set():raise InterruptedError()
+            if row['id']==reference:continue
+            record=CircuitRecord.model_validate_json(row['record'])
+            metadata=json.loads(row['metadata'])
+            if not meets_plan(record,metadata,plan):continue
+            witness,blocks,missing=required_evidence(record,plan)
+            if not missing:source_cache[row['id']]=(record,metadata,witness,blocks)
+        source_ids=sorted(source_cache)
+        source_truncated=len(source_ids)>10000
+        source_ids=source_ids[:10000]
+        hard_queries=compile_queries(plan,candidate_ids=source_ids)
+        ids,queries=set(),[]
+        eligible_response={'truncated':source_truncated}
+        for i,(query,params) in enumerate(hard_queries,1):
+            if cancel.is_set():raise InterruptedError()
+            progress(f'querying hard requirements {i}/{len(hard_queries)}')
+            response=self.neo.candidate_query(query,params) if source_ids else {'rows':[]}
+            ids.update(r['circuit_id'] for r in response['rows'])
+            eligible_response['truncated'] |= response.get('truncated',False)
+            suffix='' if source_ids else ' · not run: no canonical witness'
+            queries.append({'purpose':f'Hard requirements · alternative batch {i}/{len(hard_queries)}{suffix}','cypher':query,'parameters':params})
+        if len(ids)>10000:
+            ids=set(sorted(ids)[:10000]);eligible_response['truncated']=True
+        ids.discard(reference)
         candidates, rejected = [], 0
         for row in rows:
             if row["id"] not in ids:
                 continue
-            record = CircuitRecord.model_validate_json(row["record"])
-            metadata = json.loads(row["metadata"])
-            if not meets_plan(record, metadata, plan):
+            cached=source_cache.get(row['id'])
+            if not cached:
                 rejected += 1
                 continue
-            required_witness,block_witnesses,missing_patterns=required_evidence(record,plan)
-            if missing_patterns:
-                rejected += 1
-                continue
+            record,metadata,required_witness,block_witnesses=cached
             candidates.append({"row": dict(row), "record": record, "metadata": metadata, "matches": [],
                                "block_witnesses": block_witnesses,
                                "required_witness": required_witness, "topology_score": None, "structural_score": None,
                                "semantic_score": None, "reference_score": None, "prototype": None, "score": 0.0})
         missing = len(ids) - len(candidates) - rejected
         warnings = []
+        if interpreter == 'deterministic rules':
+            warnings.append('Common structural request interpreted by shared rules; no query-conversion model call. Prototype generation still uses the selected provider when requested. Coverage is conservative, not electrical certification.')
         if eligible_response.get("truncated"):
             warnings.append("Eligible pool exceeded 10,000 circuits; ranking uses the explicitly capped pool.")
         if rejected or missing:
@@ -348,7 +384,9 @@ class NaturalSearch:
                         if witness:
                             candidate["matches"].append({"interpretation": hypothesis.interpretation, "witness": witness,'specificity':len(hypothesis.pattern.edges)+len(hypothesis.pattern.distinct_nets)+len(hypothesis.pattern.net_conditions)})
         weak=[]
-        complete_wiring=plan.required_pattern or any(b.source_quote for b in plan.required_blocks)
+        complete_wiring=plan.required_pattern or any(b.source_quote or
+            any(c.condition=='signal' for p in b.alternatives for c in p.net_conditions)
+            for b in plan.required_blocks)
         if plan.hypotheses and not complete_wiring:
             weak=[c for c in candidates if not c['matches']]
             candidates=[c for c in candidates if c['matches']]
@@ -399,12 +437,12 @@ class NaturalSearch:
         channels = ["semantic_score", "reference_score"]
         if request.strategy == "patterns":
             for candidate in candidates:
-                candidate["pattern_coverage"] = coverage_score(candidate["matches"], candidate["required_witness"], candidate["record"].statistics.device_count)
+                candidate["pattern_coverage"] = coverage_score(candidate["matches"], candidate["required_witness"], candidate["record"].statistics.device_count, candidate['block_witnesses'])
                 candidate['pattern_specificity']=max([m.get('specificity',0) for m in candidate['matches']]+[len(plan.required_pattern.edges) if plan.required_pattern else 0]+[max(len(p.edges) for p in b.alternatives) for b in plan.required_blocks])
                 candidate['input_evidence']=0
                 if re.search(r'\b(?:amplifier|comparator|opamp|ota|op[- ]amp)\b',request.text.lower()):
                     signals={p.net_id for p in candidate['record'].ports if port_role(p.name)=='input'}
-                    for match in candidate['matches']:
+                    for match in candidate['matches']+candidate['block_witnesses']:
                         matched_ids=set(match['witness'].get('device_ids',{}).values())
                         candidate['input_evidence']=max(candidate['input_evidence'],min(2,len({e.net_id for d in candidate['record'].devices if d.id in matched_ids for e in d.connections if e.terminal in {'gate','base'} and e.net_id in signals})))
             ranked = sorted((c for c in candidates if c["pattern_coverage"]), key=lambda c: (-c["pattern_coverage"], c["row"]["id"]))
@@ -422,7 +460,7 @@ class NaturalSearch:
         # A structural match tier outranks text-only/count-only candidates. Number
         # of duplicated hypotheses never multiplies the score.
         candidates = ranked_candidates(candidates, request.strategy)
-        matched = sum(bool(c["matches"]) for c in candidates)
+        matched = sum(bool(c["matches"] or c['required_witness'] or c['block_witnesses']) for c in candidates)
         if request.strategy == "patterns" and plan.hypotheses and not matched and candidates:
             warnings.append("No structural hypothesis matched. These are hard-filter-only candidates, not confirmed functional matches.")
         partial_items=[]
@@ -461,8 +499,8 @@ class NaturalSearch:
             items.append({**summary, **{k: candidate[k] for k in ("semantic_score", "topology_score", "structural_score", "reference_score", "score", "matches", "prototype")},
                           "pattern_coverage": candidate.get("pattern_coverage"), "required_blocks": candidate["block_witnesses"],
                           "input_evidence":candidate.get('input_evidence'),
-                          "tier": "prototype candidate" if candidate["prototype"] else "structural candidate" if candidate["matches"] or candidate["required_witness"] else "hard-filter/text candidate", "evidence": evidence})
-        result = {"mode": "natural", "strategy": request.strategy, "items": items, 'partial_items':partial_items,"total": len(candidates), "structural_matches": matched,
+                          "tier": "prototype candidate" if candidate["prototype"] else "structural candidate" if candidate["matches"] or candidate["required_witness"] or candidate['block_witnesses'] else "hard-filter/text candidate", "evidence": evidence})
+        result = {"mode": "natural", "strategy": request.strategy, "interpreter": interpreter, "items": items, 'partial_items':partial_items,"total": len(candidates), "structural_matches": matched,
                   "plan": plan.model_dump(), "queries": queries, "prototypes": prototype_public, "prototype_diagnostics": diagnostics,
                   "warnings": warnings, "truncated": eligible_response.get("truncated", False), "descriptor_version": VERSION,
                   "request": request.model_dump(), "rulebook_version": load_rulebook()["version"],

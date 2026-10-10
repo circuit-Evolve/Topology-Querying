@@ -1,15 +1,115 @@
 # Search fidelity audit · 9 October 2026
 
-> Latest follow-up: the ten researcher prompts have now all been exercised and
-> source-reviewed. This is **not ten accuracy passes**: clocked-comparator and
-> broad two-stage searches still have functional false positives, and a zero
-> three-stage result does not establish corpus absence. See the 10 October
-> completion section below.
+> Latest follow-up: the deterministic-core repair below supersedes the earlier
+> failing run for the ten researcher prompts. All ten completed without timeouts,
+> with source-terminal checks on every displayed candidate. These are structural
+> candidates, not simulation-certified electrical results; zero is not proof of
+> corpus absence. Historical failures remain documented below.
 
 This is a sampled development audit, **not a general electrical-accuracy
 benchmark**. It tests explicit structural requirements and records where named
 functions/performance cannot be verified. No circuit IDs are used by product
 matching code; known IDs occur only as evaluation fixtures/counterexamples.
+
+## Deterministic-core repair · 10 October 2026
+
+The ten exact researcher prompts were rerun through the visible browser with
+**Shared rules only · no model**, on the final repaired code. No converter or
+prototype-generation model call was needed. This is a fresh end-to-end run,
+not replay of cached conversions or saved result lists.
+
+| # | Request | Eligible / displayed | First results | Server execution |
+| --- | --- | --- | --- | --- |
+| 1 | Two-stage differential input → common-source gain, direct compensation between stage outputs, T<25 | 90 / 20 | 884, 926, 2032 | 2.70s |
+| 2 | PMOS pair, NMOS mirror load and NMOS output stage, direct compensation, T≤12 | 9 / 9 | 884, 2095, 2101 | 1.52s |
+| 3 | NMOS differential input with separate source-degeneration resistors to a shared tail, R≥2, T<20 | 1 / 1 | 220 | 1.72s |
+| 4 | NMOS diode-reference mirror with cascoded output branch, T<16 | 241 / 20 | 108, 672, 841 | 2.78s |
+| 5 | NMOS G=external input, D=supply, S=distinct external output, T≤6 | 8 / 8 | 57, 20, 214 | 1.90s |
+| 6 | Differential comparator path, cross-coupled PMOS loading and output stage, 8<T<24, L=0 | 1 / 1 | 1035 | 4.58s |
+| 7 | Differential input / regenerative latch, external clock controlling tail OR reset, T<24 | 3 / 3 | 1051, 1062, 1039 | 10.14s |
+| 8 | Differential amplifier containing a mirror, T<16; compensation optional; two stages preferred | 314 / 20 | 619, 333, 884 | 7.88s |
+| 9 | Differential input → two distinct common-source gain stages, C≥2, T<20 | 0 / 0 | No supported structural matches | 2.89s |
+| 10 | Two-stage op-amp candidates, C≥1, gain≥60dB and phase margin≥60° | 104 / 20 | 884, 738, 907 | 7.08s |
+
+Timing is captured server execution, not inferred from time between browser
+actions. Clocked-comparator execution spans several bounded transactions; the
+existing **10-second per-transaction** timeout was not raised. The corpus contains
+3,352 circuits. These measurements do not establish 10k-circuit scaling.
+
+Every displayed result instance (102 across the ten requests, including repeated
+circuits) passed mandatory count/witness checks and evaluation-only raw-terminal
+oracles. The oracles enumerate terminals separately from the product matcher;
+they still consume the same parsed canonical records, so parser errors are a
+shared limitation. Source drawings were reviewed for representative results:
+884, 220, 108, 57, 1035, all three clocked results, 619, 333, 908, 898, 914, 909
+and 999. Many paper-derived records lack original PNGs; their netlists, not
+nonexistent source drawings, were checked.
+
+Important source nuances:
+
+- 1051 has a clocked preamplifier and dynamic latch. 1039 capacitively couples
+  analog inputs into a gated preamplifier/latch. The canonical matcher and the
+  independent input trace include those capacitors, rather than treating internal
+  gates as external inputs.
+- 1062 has a credible clocked-comparator drawing, but its dataset netlist is a
+  simplified/different connectivity representation: the drawing separates
+  preamplifier/latch nodes and includes coupling capacitors absent from the `.cir`.
+  The displayed witness describes the canonical netlist, not an asserted exact
+  image-to-netlist correspondence. Clock waveforms and operation remain unverified.
+- 57 contains a source-follower branch with an input-controlled load; it is not
+  claimed to be a textbook ideal current-source-loaded follower. Mirror/follower
+  retrieval can return blocks embedded in larger circuits.
+- 8's two-stage preference is ranking evidence, not a compulsory stage count.
+  One-stage circuits satisfying the required pair/mirror remain eligible.
+- 9's zero applies to the conservative sequential gain-path interpretation. It
+  neither relaxes requirements nor certifies absence of other three-stage designs.
+- 10 returns connectivity candidates. Neither the 60dB gain nor 60° phase margin
+  is verified; both remain prominently disclosed in the results.
+
+### What the repair changes
+
+Common requests use bounded composable rules → validated SearchPlan JSON →
+canonical-source pre-filter → scoped, batched read-only Cypher → source witnesses
+and ranking. The pre-filter retains all hard requirements; Neo4j checks them
+again. Complete polarity alternatives are not silently capped to one guess.
+Known bias/clock/logic interface names cannot masquerade as primary analog inputs;
+mirror-reference branches cannot create extra voltage-gain stages; regenerative
+output branches are conservatively rejected for linear-amplifier requests.
+
+The selected converter remains available for uncovered vocabulary/wiring, using
+the same schema, validation, compiler and ranker. Rules-only mode never silently
+calls it. Identical supported requests are model-independent on the fast path;
+arbitrary free-form electrical reasoning is **not** guaranteed equally accurate
+across weaker and frontier models. Naming guards can reject unusual valid signal
+names; exotic positive-feedback, buffered, cascode and indirect signal paths may
+require an explicit custom pattern. There is no simulation or new corpus metadata.
+
+Final review reproduced and fixed unintended capacitor endpoints, optional
+degeneration becoming mandatory, history replay switching rules-only to Codex,
+and concurrent reference-only completions. Tests preserve unsupported wiring
+instead of silently changing it. Refresh clears fields/results and cancels only
+the remembered job owned by that browser tab. Navigation prevents stale results
+from an older form from overwriting the current view. Errors are not empty successes.
+
+Fresh verification: **338 Python tests passed, 22 integration-gated tests skipped**;
+**25 Node UI tests passed**; separately enabled **4 live Neo4j tests passed**,
+including exact agreement with canonical candidate sets for two-stage, clocked
+and follower plans. No expected IDs, exact audit prompts or audit files are
+loaded by production matching code. No corpus records/annotations were edited.
+Local ignored evidence: `output/researcher-live-20261010/repair-case-*.json`,
+`repair-live-ui.json`, `repair-source-checks.json`, and timestamped server captures.
+
+Additional browser checks: a two-stage request with T≤7 and C=0 returned nine
+source-verified candidates; a 97-transistor mirror request returned zero; an
+uncovered capacitor-between-inputs request in rules-only mode showed an explicit
+unsupported-request error with no old cards. Refresh restored initial fields and
+empty results. On the restored normal server, the Cypher console returned 20 rows
+and reference-only similarity against 1004 returned 20 candidates without a
+converter. History provider restoration and overlapping reference submissions
+are additionally covered by UI regression tests.
+
+The earlier audit below is retained as a historical baseline, not the current
+result matrix.
 
 ## What was wrong and what changed
 

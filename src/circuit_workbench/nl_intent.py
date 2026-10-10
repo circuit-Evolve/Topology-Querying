@@ -104,7 +104,14 @@ def quote_patterns_valid(text,quote,patterns,audit):
     # Count/presence-only components are enforced independently on the whole
     # circuit. Only types mentioned in wiring clauses must occur in this
     # connected pattern; otherwise we invent an unrequested passive placement.
-    types=intent_audit('; '.join(audit['wiring']))['presence']
+    # Counts/presence can share a sentence with a connected path. Their own
+    # coordinated segment has no placement semantics unless it contains wiring
+    # words (e.g. "and a capacitor BETWEEN the two outputs").
+    segments=[]
+    for clause in audit['wiring']:
+        pieces=re.split(r'\b(?:and|with|having)\s+(?=(?:at least|at most|more than|fewer than|less than|exactly|a|an|\d+|one|two|three|four|five)\b)',clause,flags=re.I)
+        segments.extend(p for p in pieces if WIRING.search(p))
+    types=intent_audit('; '.join(segments))['presence']
     differential=bool(re.search(r'\bdifferential[- ]input\b|\bdifferential input\b',text,re.I))
     for pattern in patterns:
         if not connected(pattern) or (audit['signal_stage_count'] and len(pattern.signal_stages)!=audit['signal_stage_count']):return False
@@ -149,12 +156,23 @@ def explicit_net_roles_valid(pattern,clauses):
             subjects[subject]=subjects.get(subject,set(kinds)) & choices
     return all(subjects.values())
 
-def stage_interfaces(pattern):
+def stage_interfaces(pattern, linear=False):
     if not pattern.signal_stages:return
     from .nl_schema import NetCondition
     for net in pattern.signal_stages[0].input_nets+pattern.signal_stages[-1].output_nets:
-        condition=NetCondition(net=net,condition='external')
-        if condition not in pattern.net_conditions:pattern.net_conditions.append(condition)
+        for kind in ('external', 'signal') if linear else ('external',):
+            condition=NetCondition(net=net,condition=kind)
+            if condition not in pattern.net_conditions:pattern.net_conditions.append(condition)
+    if linear:
+        first = set(pattern.signal_stages[0].devices)
+        signal_nodes = {e.net for e in pattern.edges if e.device in first and e.terminal in {'drain','collector'}}
+        signal_nodes.update(n for stage in pattern.signal_stages for n in stage.output_nets)
+        for net in signal_nodes:
+            condition=NetCondition(net=net,condition='not_rail')
+            if condition not in pattern.net_conditions:pattern.net_conditions.append(condition)
+        for net in pattern.signal_stages[-1].output_nets:
+            condition=NetCondition(net=net,condition='linear_output')
+            if condition not in pattern.net_conditions:pattern.net_conditions.append(condition)
     for stage in pattern.signal_stages:
         for a in stage.input_nets:
             for b in stage.output_nets:
@@ -162,9 +180,10 @@ def stage_interfaces(pattern):
 
 def ground_structures(text,plan):
     audit=intent_audit(text);kept=[];complete=False
+    linear=bool(re.search(r'\b(?:amplifier|op[- ]?amp|ota)\b',text,re.I))
     for block in plan.required_blocks:
         if quote_patterns_valid(text,block.source_quote,block.alternatives,audit):
-            for pattern in block.alternatives:stage_interfaces(pattern)
+            for pattern in block.alternatives:stage_interfaces(pattern,linear)
             kept.append(block);complete=True
         else:
             from .nl_schema import Hypothesis
@@ -173,7 +192,7 @@ def ground_structures(text,plan):
     plan.required_blocks=kept
     if plan.required_pattern:
         if quote_patterns_valid(text,plan.required_pattern_source,[plan.required_pattern],audit):
-            stage_interfaces(plan.required_pattern);complete=True
+            stage_interfaces(plan.required_pattern,linear);complete=True
         else:
             from .nl_schema import Hypothesis
             if len(plan.hypotheses)<5:plan.hypotheses.append(Hypothesis(interpretation='Ungrounded model wiring; not compulsory.',pattern=plan.required_pattern))

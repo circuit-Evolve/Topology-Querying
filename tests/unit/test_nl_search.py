@@ -171,9 +171,9 @@ def test_parent_function_candidates_need_evidence_beyond_the_required_embedded_m
     class Neo:
         def candidate_query(self,*args):return {'rows':[{'circuit_id':i} for i in ids],'truncated':False}
     search=NaturalSearch(db,Neo(),Retrieval(db),generate=lambda *a:SearchPlan(requested_function='differential amplifier',hypothesis_rules=['mos_diff_pair']))
-    result=search.run({'text':'Find differential amplifier candidates containing a current mirror and fewer than 16 transistors.'},threading.Event(),lambda s:None)
+    result=search.run({'text':'Find differential amplifier candidates containing a current mirror and fewer than 16 transistors for an unusual custom topology.'},threading.Event(),lambda s:None)
     assert [c['id'] for c in result['items']]==[ids[1]]
-    for query in result['queries'][1:]:
+    for query in (q for q in result['queries'] if not q['purpose'].startswith('Hard requirements')):
         assert set(query['parameters']['eligible_ids'])==set(ids)
         assert not any(k.startswith('block') for k in query['parameters'])
 

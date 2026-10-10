@@ -3,6 +3,37 @@ import json,os
 from pathlib import Path
 import pytest
 
+
+@pytest.mark.skipif(os.getenv('RUN_NL_LIVE_NEO4J')!='1',reason='requires running local corpus Neo4j')
+@pytest.mark.parametrize('prompt', [
+    'Find two-stage op amps with a capacitor and fewer than 26 transistors.',
+    'Find clocked comparators with a differential input pair and regenerative latch, an external clock controlling a tail transistor or reset transistors, and fewer than 23 transistors.',
+    'Find NMOS source followers with at most 7 transistors.',
+])
+def test_shared_rule_witnesses_and_batched_live_cypher_agree(prompt):
+    from circuit_workbench.nl_templates import deterministic_plan
+    from circuit_workbench.nl_search import meets_plan, required_evidence
+    from circuit_workbench.nl_compiler import compile_queries
+    from circuit_workbench.settings import Settings
+    from circuit_workbench.catalog import Catalog
+    from circuit_workbench.neo4j import Neo4jService
+    settings=Settings.local();catalog=Catalog(settings.state,settings.corpus,settings.upstream)
+    plan=deterministic_plan(prompt)
+    assert plan is not None
+    with catalog.connect() as db:
+        ids=[r['id'] for r in db.execute('SELECT id FROM circuits')]
+    expected={rid for rid in ids if meets_plan(catalog.record(rid),catalog.detail(rid)['metadata'],plan)
+              and not required_evidence(catalog.record(rid),plan)[2]}
+    assert expected
+    neo=Neo4jService(settings,catalog)
+    actual=set()
+    try:
+        for query,params in compile_queries(plan,candidate_ids=sorted(expected)):
+            actual.update(row['circuit_id'] for row in neo.candidate_query(query,params)['rows'])
+    finally:
+        neo.driver.close()
+    assert actual==expected
+
 @pytest.mark.skipif(os.getenv('RUN_NL_LIVE_NEO4J')!='1',reason='requires running local corpus Neo4j')
 def test_multi_alternative_connected_patterns_fit_the_live_query_budget():
     from circuit_workbench.nl_schema import SearchPlan

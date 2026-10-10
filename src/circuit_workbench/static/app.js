@@ -1,5 +1,5 @@
 import {nextZoomScale, fitImageScale} from './viewer-controls.mjs';
-import {mountNatural, naturalResultHTML} from './natural-language.mjs';
+import {mountNatural, naturalResultHTML, historyProvider} from './natural-language.mjs';
 import {mountStudio} from './studio.mjs';
 
 const $ = (selector, root=document) => root.querySelector(selector);
@@ -207,8 +207,8 @@ async function renderQuery(){
 }
 function renderNaturalForm(){
   mountNatural($('#query-form'),{state:queryState,persist:persistQuery,api:(path,options)=>{if(path==='/api/natural/jobs'&&options?.method==='POST')clearQueryResults();return api(path,options);},
-    onResult:(data,visible)=>{lastResult={mode:'natural',data};if(visible&&queryState.mode==='similarity'){renderResult(lastResult);refreshHistory();}},
-    onReferenceOnly:async payload=>{clearQueryResults();try{const data=await api('/api/search',{method:'POST',body:JSON.stringify({text:'',reference_id:payload.reference_id,limit:payload.limit})});lastResult={mode:'similarity',data};if(queryState.mode==='similarity'&&$('#natural-prompt')){renderResult(lastResult);refreshHistory();}}catch(error){if($('#query-error'))$('#query-error').innerHTML=errorHTML(error.message);}}
+    onResult:(data,visible)=>{if(!visible)return;lastResult={mode:'natural',data};if(queryState.mode==='similarity'){renderResult(lastResult);refreshHistory();}},
+    onReferenceOnly:async (payload,isCurrent=()=>true)=>{clearQueryResults();try{const data=await api('/api/search',{method:'POST',body:JSON.stringify({text:'',reference_id:payload.reference_id,limit:payload.limit})});if(!isCurrent())return;lastResult={mode:'similarity',data};if(queryState.mode==='similarity'&&$('#natural-prompt')){renderResult(lastResult);refreshHistory();}}catch(error){if(isCurrent()&&$('#query-error'))$('#query-error').innerHTML=errorHTML(error.message);}}
   });
 }
 function clearQueryResults(){lastResult=null;closeViewer();network?.destroy();network=null;$('#query-result')?.replaceChildren();}
@@ -252,7 +252,7 @@ function renderResult(result){
     if(data.graph.truncated)$('#query-result .result-note').textContent+=' Graph display capped at 1,200 nodes / 3,000 relationships; narrow the query to inspect the complete result.';
   }
 }
-async function refreshHistory(){try{const history=await api('/api/history');if(!$('#query-history'))return;$('#query-history').innerHTML=history.length?history.slice(0,6).map((h,i)=>`<button class="history-item" data-history="${i}" title="${esc(h.query)}">${esc(h.kind==='cypher'?h.query.split('\n')[0]:h.query)}</button>`).join(''):'<span class="help">Your successful runs appear here.</span>';$$('[data-history]').forEach(b=>b.onclick=()=>{const h=history[Number(b.dataset.history)];if(h.kind==='cypher'){queryState.mode='cypher';queryState.query=h.query;queryState.parameters=h.parameters;}else{const p=JSON.parse(h.parameters);queryState.mode='similarity';queryState.text=p.text||'';queryState.reference=p.reference_id||'';if(h.kind==='natural'){queryState.strategy=p.strategy;queryState.provider=p.provider;queryState.model=p.model;queryState.limit=p.limit;}}lastResult=null;persistQuery();renderQuery();});}catch{}}
+async function refreshHistory(){try{const history=await api('/api/history');if(!$('#query-history'))return;$('#query-history').innerHTML=history.length?history.slice(0,6).map((h,i)=>`<button class="history-item" data-history="${i}" title="${esc(h.query)}">${esc(h.kind==='cypher'?h.query.split('\n')[0]:h.query)}</button>`).join(''):'<span class="help">Your successful runs appear here.</span>';$$('[data-history]').forEach(b=>b.onclick=()=>{const h=history[Number(b.dataset.history)];if(h.kind==='cypher'){queryState.mode='cypher';queryState.query=h.query;queryState.parameters=h.parameters;}else{const p=JSON.parse(h.parameters);queryState.mode='similarity';queryState.text=p.text||'';queryState.reference=p.reference_id||'';if(h.kind==='natural'){queryState.strategy=p.strategy;queryState.provider=historyProvider(p);queryState.model=p.model;queryState.limit=p.limit;}}lastResult=null;persistQuery();renderQuery();});}catch{}}
 
 let uploadImage='',validatedUpload='';
 function openUpload(){

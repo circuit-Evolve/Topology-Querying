@@ -12,6 +12,10 @@ NET_ROLE_NAMES = {
 }
 NET_ROLE_NAMES['rail'] = NET_ROLE_NAMES['supply'] + NET_ROLE_NAMES['ground']
 CLOCK_NAME_PATTERN = r'^(VCLK|CLK|CLOCK|PHI|CK).*'
+# Explicit source naming evidence, not an inferred voltage/waveform. Unknown
+# names remain allowed; known bias, clock and digital interfaces do not become
+# analog inputs merely because they are external ports.
+NON_SIGNAL_NAME_PATTERN = r'^(VB.*|IB.*|BIAS.*|VREF.*|IREF.*|VCLK.*|CLK.*|CLOCK.*|PHI.*|CK.*|LOGIC.*)$'
 DeviceType = Literal["nmos", "pmos", "npn", "pnp", "resistor", "capacitor", "inductor", "diode", "voltage_source", "current_source", "xor", "pfd", "inverter", "transmission_gate"]
 Entity = Literal["device", "transistor", "mos", "bjt", "port", "net", "nmos", "pmos", "npn", "pnp", "resistor", "capacitor", "inductor", "diode", "voltage_source", "current_source", "xor", "pfd", "inverter", "transmission_gate"]
 Alias = Annotated[str, Field(pattern=r"^[A-Za-z][A-Za-z0-9_]{0,31}$")]
@@ -40,7 +44,7 @@ class PortBinding(Contract):
 
 class NetCondition(Contract):
     net: Alias
-    condition: Literal["not_rail", "external", "supply", "ground", "rail", "clock_named"]
+    condition: Literal["not_rail", "external", "supply", "ground", "rail", "clock_named", "signal", "linear_output"]
 
 
 class SignalStage(Contract):
@@ -116,6 +120,26 @@ def stage_feedback_constraints(pattern):
     return checks
 
 
+def stage_gain_constraints(pattern):
+    """Reject current-replication inputs in the conservative linear-stage proxy.
+
+    A gain device whose control is a same-type diode-reference node is a mirror
+    branch, not evidence of another voltage-gain stage. This is deliberately
+    conservative; unusual hybrid/translinear circuits need custom search.
+    """
+    if not any(c.condition == 'linear_output' for c in pattern.net_conditions):
+        return []
+    kinds = {d.alias: d.type for d in pattern.devices}
+    checks = []
+    for stage in pattern.signal_stages[1:]:
+        for alias in stage.devices:
+            kind = kinds[alias]
+            control, output = ('gate', 'drain') if kind in {'nmos', 'pmos'} else ('base', 'collector')
+            inputs = {e.net for e in pattern.edges if e.device == alias and e.terminal == control}
+            checks.extend((kind, control, output, net) for net in inputs & set(stage.input_nets))
+    return checks
+
+
 class CountConstraint(Contract):
     entity: Entity
     operator: Literal["eq", "gt", "ge", "lt", "le"]
@@ -144,7 +168,7 @@ class Hypothesis(Contract):
 class RequiredBlock(Contract):
     name: Annotated[str, Field(min_length=1, max_length=150)]
     source_quote: Annotated[str, Field(max_length=6000)] = ""
-    alternatives: list[GraphPattern] = Field(min_length=1, max_length=5)
+    alternatives: list[GraphPattern] = Field(min_length=1, max_length=16)
 
 
 class Unverified(Contract):
@@ -162,7 +186,7 @@ class SearchPlan(Contract):
     required_pattern: GraphPattern | None = None
     required_pattern_source: Annotated[str, Field(max_length=6000)] = ""
     required_blocks: list[RequiredBlock] = Field(default_factory=list, max_length=5)
-    hypotheses: list[Hypothesis] = Field(default_factory=list, max_length=5)
+    hypotheses: list[Hypothesis] = Field(default_factory=list, max_length=16)
     hypothesis_rules: list[Literal["mos_mirror", "mos_diff_pair", "bjt_mirror", "cascode_stack", "cross_coupled", "cmos_inverter", "rc_branch"]] = Field(default_factory=list, max_length=5)
     semantic_text: Text = ""
     reference_id: Annotated[str, Field(max_length=200)] = ""
@@ -185,6 +209,7 @@ class PrototypeBatch(Contract):
 class NaturalRequest(Contract):
     text: Annotated[str, Field(min_length=1, max_length=6000)]
     strategy: Literal["patterns", "prototypes"] = "patterns"
+    interpretation: Literal['auto', 'rules_only'] = 'auto'
     provider: Literal["codex", "ollama", "claude"] = "codex"
     model: Annotated[str, Field(max_length=150, pattern=r"^[A-Za-z0-9_.:/-]*$")] = ""
     reference_id: Annotated[str, Field(max_length=200)] = ""

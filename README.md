@@ -154,12 +154,31 @@ A direct reciprocal gate–drain/base–collector regenerative branch is not cou
 as an extra feedforward gain stage. This is a conservative wiring proxy, not a
 general analysis of feedback or operating gain.
 
-**Accuracy status:** the ten-prompt researcher audit is complete, but not every
-search passed functional review. Clocked-comparator and broad two-stage requests
-still produce some wrong-function/embedded-stage matches, and omitted model
-alternatives can cause false negatives. Do not treat an eligible graph match as
-a verified circuit family or exact operating stage count. See the
-[latest results and remaining failures](docs/search-fidelity-evaluation.md#ten-prompt-live-audit-completed--10-october-2026).
+**Shared structural rules:** common differential-pair/degeneration, mirror/cascode,
+source-follower, sequential gain-stage and regenerative/clocked-comparator requests
+now have a deterministic interpreter before any converter call. Counts, polarity,
+mandatory wiring and optional preferences compose into the same validated JSON
+contract. Choose **Shared rules only · no model** to prohibit model fallback.
+Unknown vocabulary or uncovered wiring requires your explicitly selected converter;
+rules-only mode instead reports that it cannot fully interpret the request. This
+bounded grammar is not a general electrical-language parser.
+
+For common requests, canonical source witnesses narrow the candidate IDs before
+Neo4j checks the full constraints in bounded alternative batches. This avoids
+expensive whole-corpus multi-pattern joins without dropping required alternatives
+or raising the 10-second per-transaction timeout. Bias/clock/logic interfaces,
+mirror-reference branches counted as gain stages, and regenerative amplifier
+outputs have additional conservative guards. Source scans still grow with corpus
+size; the repaired live audit covers 3,352 records, not a 10k scaling benchmark.
+
+**Accuracy status:** the repaired ten-prompt browser run completed without timeouts;
+all 102 displayed result instances passed count and raw-terminal checks. Previously
+observed logic-latch/comparator false positives were excluded, and optional stage
+preferences now affect ranking rather than eligibility. This is sampled structural
+validation, not certification of circuit family, operating stage count, gain or
+stability. The strict three-stage prompt returns no supported structural match,
+not proof of corpus absence. See the
+[repair results and coverage limits](docs/search-fidelity-evaluation.md#deterministic-core-repair--10-october-2026).
 Different pattern net aliases mean different physical nets; intentionally shared
 connections must reuse one alias. Resistors/capacitors/inductors match either
 terminal orientation. Explicit terminal/interface clauses can require external

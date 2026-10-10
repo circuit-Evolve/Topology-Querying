@@ -1,8 +1,26 @@
 """Compile validated patterns into owned, parameterized read-only Cypher."""
-from .nl_schema import SearchPlan, GraphPattern, TERMINALS, RECIPROCAL_TYPES, NET_ROLE_NAMES, CLOCK_NAME_PATTERN, stage_feedback_constraints
+import itertools
+from .nl_schema import SearchPlan, GraphPattern, TERMINALS, RECIPROCAL_TYPES, NET_ROLE_NAMES, CLOCK_NAME_PATTERN, NON_SIGNAL_NAME_PATTERN, stage_feedback_constraints, stage_gain_constraints
 
 OPERATORS = {"eq": "=", "gt": ">", "ge": ">=", "lt": "<", "le": "<="}
 GROUPS = {"transistor": ["nmos", "pmos", "npn", "pnp"], "mos": ["nmos", "pmos"], "bjt": ["npn", "pnp"]}
+
+
+def compile_queries(plan, batch_size=1, *, candidate_ids=None):
+    """Union bounded OR batches, retaining every AND requirement in every query."""
+    plan = SearchPlan.model_validate(plan.model_dump())
+    choices=[]
+    for block in plan.required_blocks:
+        choices.append([block.model_copy(update={'alternatives': block.alternatives[i:i+batch_size]})
+                        for i in range(0, len(block.alternatives), batch_size)])
+    combinations=1
+    for batches in choices:combinations*=len(batches)
+    if combinations > 16 and batch_size < 4:
+        return compile_queries(plan,batch_size=batch_size+1,candidate_ids=candidate_ids)
+    if combinations > 16:
+        raise ValueError('The structural alternatives require more than 16 query batches. Split the request; no alternatives were discarded.')
+    return [compile_query(plan.model_copy(update={'required_blocks':list(blocks)}), candidate_ids=candidate_ids)
+            for blocks in itertools.product(*choices)]
 
 
 def compile_query(plan: SearchPlan, pattern: GraphPattern | None = None, *, candidate_ids: list[str] | None = None):
@@ -89,6 +107,12 @@ def compile_pattern(pattern, prefix):
         for i,condition in enumerate(pattern.net_conditions):
             if condition.net not in bound_nets:continue
             if condition.condition=='external':where.append(f'{nets[condition.net]}.is_external = true')
+            elif condition.condition=='linear_output':continue  # structural guard emitted after bindings
+            elif condition.condition=='signal':
+                key=f'{prefix}nonsignal{i}';params[key]=NON_SIGNAL_NAME_PATTERN
+                railkey=f'{prefix}signalrails{i}';params[railkey]=list(NET_ROLE_NAMES['rail'])
+                where.append(f'NOT toUpper({nets[condition.net]}.name) =~ ${key}')
+                where.append(f'NOT toUpper({nets[condition.net]}.name) IN ${railkey}')
             elif condition.condition=='clock_named':
                 key=f'{prefix}clock{i}';params[key]=CLOCK_NAME_PATTERN
                 where.append(f'toUpper({nets[condition.net]}.name) =~ ${key}')
@@ -116,5 +140,23 @@ def compile_pattern(pattern, prefix):
         folds.append(f'NOT EXISTS {{ MATCH (c)-[:HAS_DEVICE]->({variable}:Device {{canonical_type: ${prefix}stage_feedback_type{i}}}) '
             f'MATCH ({variable})-[:CONNECTED_TO {{terminal: ${prefix}stage_feedback_control{i}}}]->({nets[b]}), '
             f'({variable})-[:CONNECTED_TO {{terminal: ${prefix}stage_feedback_output{i}}}]->({nets[a]}) RETURN 1 }}')
+    for i,(kind,control,output,net) in enumerate(stage_gain_constraints(pattern)):
+        variable=f'{prefix}mirror_input{i}'
+        params.update({f'{prefix}mirror_kind{i}':kind,f'{prefix}mirror_control{i}':control,f'{prefix}mirror_output{i}':output})
+        folds.append(f'NOT EXISTS {{ MATCH (c)-[:HAS_DEVICE]->({variable}:Device {{canonical_type: ${prefix}mirror_kind{i}}}) '
+            f'MATCH ({variable})-[:CONNECTED_TO {{terminal: ${prefix}mirror_control{i}}}]->({nets[net]}), '
+            f'({variable})-[:CONNECTED_TO {{terminal: ${prefix}mirror_output{i}}}]->({nets[net]}) RETURN 1 }}')
+    for i,condition in enumerate(c for c in pattern.net_conditions if c.condition=='linear_output'):
+        for j,(kinds,control,output) in enumerate([(['nmos','pmos'],'gate','drain'),(['npn','pnp'],'base','collector')]):
+            a,b,q=f'{prefix}regen{i}_{j}a',f'{prefix}regen{i}_{j}b',f'{prefix}regen{i}_{j}net'
+            key=f'{prefix}regen_kinds{i}_{j}';params[key]=kinds
+            ck,ok=f'{prefix}regen_control{i}_{j}',f'{prefix}regen_output{i}_{j}'
+            params[ck],params[ok]=control,output
+            out=nets[condition.net]
+            folds.append(f'NOT EXISTS {{ MATCH (c)-[:HAS_DEVICE]->({a}:Device)-[:CONNECTED_TO {{terminal: ${ok}}}]->({out}), '
+                f'({a})-[:CONNECTED_TO {{terminal: ${ck}}}]->({q}:Net), '
+                f'(c)-[:HAS_DEVICE]->({b}:Device)-[:CONNECTED_TO {{terminal: ${ok}}}]->({q}), '
+                f'({b})-[:CONNECTED_TO {{terminal: ${ck}}}]->({out}) '
+                f'WHERE {a}.canonical_type IN ${key} AND {b}.canonical_type = {a}.canonical_type AND {out} <> {q} RETURN 1 }}')
     if folds:clauses.append('WITH DISTINCT '+', '.join(['c']+list(devices.values())+list(nets.values()))+' WHERE '+' AND '.join(folds))
     return '\n'.join(clauses)+'\nRETURN 1',params
